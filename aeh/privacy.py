@@ -46,7 +46,7 @@ import json
 import math
 import re
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
@@ -1113,7 +1113,7 @@ class AuditEntry:
     reason_codes: tuple[str, ...] = ()
     student_key: str | None = None
     tenant_key: str | None = None
-    detail: Mapping[str, Scalar] = MappingProxyType({})
+    detail: Mapping[str, Scalar] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "seq", _non_negative_int(self.seq, "seq"))
