@@ -1,14 +1,19 @@
-# AEH × dsh / Cordis 集成说明（Step 3 + Step 4）
+# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5）
 
 状态：**已用真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` 替换离线适配层，
-并在一个独立隔离的 Cordis loader 实例中完成加载/卸载与工具契约测试**；仍**未**
-接入真实学生数据，也**未**加载进任何正在运行的 dsh 会话。本文说明 Step 1
-核心如何映射为教育插件与工具、默认权限边界，以及真正接入 dsh 运行时还需要补什么。
+并在一个独立隔离的 Cordis loader 实例中完成加载/卸载与工具契约测试**。Step 5 在
+此基础上新增第六个工具 `aeh_generate_report`（只接收已授权聚合事件）、一个默认
+不启用的文件事件存储 `FileEventStore`（append-only / 幂等 / 版本回滚 / 保留期 /
+同意撤回删除传播），以及 Python 侧的独立冻结评测协议（规范 §19）。仍**未**接入
+真实学生数据，也**未**加载进任何正在运行的 dsh 会话。本文说明 Step 1 核心如何
+映射为教育插件与工具、默认权限边界，以及真正接入 dsh 运行时还需要补什么。
 
-Step 4 不修改 `aeh/` 的 Python 行为，不接入真实学生数据，不复制
-`references/deepseek-harness/` 的代码；`references/` 与 `spec/` 保持只读。
-隔离测试只在本目录 `dsh-plugin/` 内安装依赖（`dsh-plugin/.npm-cache`），不读写
-`~/.dsh/`，不修改 `~/workspace/deepseek-harness` 克隆或 npx 安装的 dsh。
+Step 5 不修改 `aeh/` 的 Step 1/2 行为（只新增 `aeh/evaluation.py` 与
+`aeh/eval_cli.py`），不接入真实学生数据，不复制 `references/deepseek-harness/`
+的代码；`references/` 与 `spec/` 保持只读。隔离测试只在本目录 `dsh-plugin/` 内
+安装依赖（`dsh-plugin/.npm-cache`），不读写 `~/.dsh/`，不修改
+`~/workspace/deepseek-harness` 克隆或 npx 安装的 dsh。`FileEventStore` 的测试文件
+只写在 `os.tmpdir()` 下的临时合成目录，默认 `enabled: false`。
 
 ## 1. 目标与非目标
 
@@ -17,14 +22,15 @@ Step 4 不修改 `aeh/` 的 Python 行为，不接入真实学生数据，不复
 - 一个保持 Cordis 函数插件形状（`name` / `inject` / `apply(ctx)`）的 TypeScript
   入口；
 - 把课程门禁、学生孪生、FSRS 记忆模型、虚拟学生假设、主动诊断、习题干预包
-  映射为可审查的模块和五个模型可调用工具；
+  映射为可审查的模块和六个模型可调用工具；
 - 一个默认拒绝的权限清单；
 - 一条清晰的宿主边界：模型可以“计算”和“准备”，但不能写长期孪生、不能交付
   干预包、不能绕过门禁。
 
-本步**不**交付：真实 dsh 运行时挂载到生产会话、持久化、生产鉴权/KMS、同意管理
-后台、真实交付 UI、真实 LLM/OCR、教师/家长报告插件、自进化流水线。它们列在
-“接入清单”和 TODO 中。Step 4 交付的是 P0 的**隔离运行时**验证与内存适配器。
+本步**不**交付：真实 dsh 运行时挂载到生产会话、生产鉴权/KMS、同意管理后台、
+真实交付 UI、真实 LLM/OCR、自进化流水线、生产级持久化。它们列在“接入清单”和
+TODO 中。Step 4 交付的是 P0 的**隔离运行时**验证与内存适配器；Step 5 在内存适配器
+之上交付**最小**文件事件存储、报告工具与独立评测协议，全部仍是合成/测试实现。
 
 ## 2. 代码结构
 
@@ -40,12 +46,14 @@ dsh-plugin/
     dsh.ts                  # 真实 cordis/dsh-tools 的薄 authoring 适配层
     domain.ts               # 与 Python 核心对应的领域类型
     permissions.ts          # 默认最小权限清单与激活时校验
+    report.ts               # Step 5：对应 aeh/report.py 的聚合报告边界
     service.ts              # 教育服务：工具背后的纯计算/准备逻辑
-    tools.ts                # 五个模型可调用工具（声明协作式 timeoutMs）
+    tools.ts                # 六个模型可调用工具（声明协作式 timeoutMs）
     host/
       consent.ts            # 内存同意作用域快照，可撤回、默认拒绝
       host-context.ts       # 内存 HostContext：绑定单一 session/租户/学生
       twin-adapter.ts       # 内存宿主孪生适配器：来源认证、幂等、审计
+      file-event-store.ts   # Step 5：默认关闭的 append-only 文件事件存储
       delivery.ts           # 宿主侧审批 + 交付门（工具不交付）
     core/
       curriculum-gate.ts    # 对应 aeh/curriculum_gate.py
@@ -57,7 +65,9 @@ dsh-plugin/
   tests/
     invariants.test.ts      # 13 个离线不变量测试（结构化替身）
     host-adapters.test.ts   # 12 个宿主适配器契约测试
-    contract.test.ts        # 6 个真实 Cordis/dsh 运行时契约测试
+    report.test.ts          # Step 5：8 个聚合报告边界测试
+    persistence.test.ts     # Step 5：8 个文件事件存储测试
+    contract.test.ts        # 7 个真实 Cordis/dsh 运行时契约测试
 ```
 
 `src/dsh.ts` 现在直接导入真实 `@deepseek-ai/cordis` 与
@@ -190,12 +200,23 @@ IG(q) + alpha * teachingValue(q)
 `requiresHostApproval: true`。真实交付必须由宿主在同意、审批和独立门禁复检后
 调用宿主侧交付适配器；模型工具不能直接把题交给学生。
 
-### 3.7 未映射的 Step 2 模块
+### 3.7 Step 2 模块的映射（Step 5 完成）
 
-`report.py` 与 `demo_session.py` 不在 Step 3 范围内。后续若要接入，应另建：
+`aeh/report.py` 的边界已映射为 `src/report.ts` + 工具 `aeh_generate_report`：
 
-- 只接收已授权聚合事件的报告工具（不接收原始题目/答案/图片）；
-- 仅用于本地验收的合成 demo 适配器（不作为生产数据入口）。
+- 工具参数被固定为聚合计数器（`attempts` / `independentCorrect` /
+  `hintedCorrect` / `hintsRequested` / `reviewsDue` / `reviewsCompleted` /
+  `minutes`）加 opaque 的 `consentScope` 与聚合批次引用 `aggregateRef`；
+- `additionalProperties: false` 让题目、答案、图片、步骤、任意 `payload` 在
+  dsh schema 编译阶段就被 `INVALID_ARGS` 拒绝；`report.ts` 另有字段白名单，
+  即使绕过 schema 也会被拒绝；
+- 按受众 scope 取交集（调用方只能收窄），跨学生/越界/未授权/重复事件只计入
+  `events_excluded`；
+- 输出只有聚合总量、知识点 id 与待关注原因，**不含** `aggregateRef`、原始数据或
+  事件引用；`aggregateRef` 只用于幂等去重，不是原始学习事件 id。
+
+`demo_session.py` 是离线教学演示，不在插件运行时内；插件不接收也不重放它的原始
+作答。跨服务的合规身份、同意记录与保留期仍需宿主实现（见 P1）。
 
 ## 4. Cordis 插件结构
 
@@ -249,8 +270,15 @@ Step 4 新增的内存适配器位于 `src/host/`：
   simulated 硬隔离。
 - `ApprovalLedger` / `HostDeliveryAdapter`：宿主侧审批与交付门，交付前重新解析
   包并再过门禁；工具只返回 `notDelivered` / `requiresHostApproval`。
+- `FileEventStore`（Step 5）：在 `MemoryHostTwin` 之上持久化**已认证 observed**
+  事件到本地 `events.jsonl`，默认 `enabled: false`；只接受 `synthetic.*` /
+  `demo.*` 学生引用与 `syntheticRoot` 内的目录；按 `eventRef` 幂等、记录 SHA-256
+  完整性校验（不是签名）、`retentionDays` 到期与 `twin:observe` 撤回都以
+  `tombstones.jsonl` 追加式墓碑实现删除传播，撤回后读写与 `load()` 全部 fail
+  closed；持久化记录**不含** payload，因此原始作答不会写入文件。
 
-这些适配器全部是合成/测试用的内存实现，不是生产鉴权、KMS、持久化或交付通道。
+这些适配器全部是合成/测试用的内存或本地文件实现，不是生产鉴权、KMS、持久化或
+交付通道。`FileEventStore` 的测试只使用 `os.tmpdir()` 临时目录。
 
 ## 5. 工具目录
 
@@ -261,9 +289,11 @@ Step 4 新增的内存适配器位于 `src/host/`：
 | `aeh_select_probe` | 候选 `itemId`、权重、`studentRef`、mode | 选中的 probe / null + 被拒候选 | 无 | `curriculum:read` |
 | `aeh_schedule_review` | memory state + observations + target | 更新后的记忆状态、下次间隔 | 无 | `review:schedule:compute` |
 | `aeh_prepare_intervention` | 包含 `trainingItemIds` / `transferItemIds` 的包、`studentRef`、mode | 校验结果、`deliveryEligible`、`notDelivered` | 无 | `intervention:prepare` |
+| `aeh_generate_report` | `audience`、`studentRef`、窗口、已授权聚合事件、可选收窄 scope | 最小化聚合报告（总量 + 知识点 + 待关注） | 无（纯读取/计算） | `report:aggregate:read` |
 
 没有 `aeh_twin_write`、`aeh_deliver_intervention`、`aeh_override_gate` 或
-`aeh_read_raw_student_data`。这不是遗漏，是默认权限设计的一部分。
+`aeh_read_raw_student_data`。这不是遗漏，是默认权限设计的一部分。`aeh_generate_report`
+也不接收题目原文、答案、图片、步骤或原始事件 id：schema 闭合 + 运行时白名单双重拒绝。
 
 门禁/诊断/干预工具的参数里**没有** curriculum item、progress 或安全标注对象；
 模型只传 `itemId` / `studentRef`。`HostContext.resolveProgress` 和
@@ -284,6 +314,7 @@ Step 4 新增的内存适配器位于 `src/host/`：
 | `session:hypothesis:write` | 允许 | 更新会话级假设快照，不写长期证据 |
 | `review:schedule:compute` | 允许 | 纯 FSRS 计算 |
 | `intervention:prepare` | 允许 | 准备/校验干预包，不交付 |
+| `report:aggregate:read` | 允许 | 只用已授权聚合事件生成最小化报告 |
 
 永久拒绝：
 
@@ -317,20 +348,23 @@ Step 4 新增的内存适配器位于 `src/host/`：
 真实学生/教师/可信判题
         │  (宿主认证、同意、审计)
         ▼
-宿主事件存储 / Profile / Bundle  ──►  StudentTwin（observed，只追加）
+宿主事件存储 / Profile / Bundle / FileEventStore（默认关闭，append-only + 墓碑）
         │                                   │
-        │ 授权进度/聚合快照                  │ 推断 mastery
-        ▼                                   ▼
+        │                                   ├─►  StudentTwin（observed，只追加）
+        │ 授权进度/聚合快照                  │         │ 推断 mastery
+        ▼                                   │         ▼
   AEH 插件工具（无原始数据）          宿主侧版本/回滚
         │
         ├─ 门禁决策
         ├─ 会话假设
         ├─ 诊断选择
         ├─ FSRS 调度
-        └─ 干预包准备 ──► 宿主审批/交付（插件不直接交付）
+        ├─ 干预包准备 ──► 宿主审批/交付（插件不直接交付）
+        └─ 聚合报告 ──► 教师/家长视图（不含原始数据与事件引用）
 
 模拟学生 ──► simulated 隔离存储 ──► 可影响短期假设/教学实验
                               ✗ 不能写 observed、不能提升为真实证据
+                              ✗ 不能在评测里充当真实迁移证据（见 §9 Step 5）
 ```
 
 测试只用 `synthetic.student.001` 这类合成引用；仓库不包含真实学生数据、密钥或
@@ -350,6 +384,9 @@ Step 4 新增的内存适配器位于 `src/host/`：
 6. 需要干预时调用 `aeh_prepare_intervention`（包内只有 `trainingItemIds` /
    `transferItemIds`），只得到 `deliveryEligible`。
 7. 宿主做同意/审批/独立门禁复检，调用宿主交付适配器；插件不直接发题。
+8. 报告阶段，宿主把窗口内**已授权聚合事件**交给 `aeh_generate_report`；工具按受众
+   scope 取交集、排除跨学生/越界/未授权/重复事件，只返回最小化聚合报告；原始题目、
+   答案、图片、步骤与事件 id 既不进入参数也不出现在输出。
 
 ## 9. 真正接入 dsh 运行时还要补什么
 
@@ -360,7 +397,7 @@ Step 4 新增的内存适配器位于 `src/host/`：
 
 | P0 项 | Step 4 状态 | 证据 / 残留 |
 |---|---|---|
-| 替换 `src/dsh.ts` 为真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` | **已完成（隔离实例）** | `src/dsh.ts` 直接导入两个真实包；`npm run typecheck` 通过；`tests/contract.test.ts` 与 `npm run evidence:loader` 用真实 `cordis-plugin-loader` 挂载 5 个工具、dsh 编译 schema、卸载后归零 |
+| 替换 `src/dsh.ts` 为真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` | **已完成（隔离实例）** | `src/dsh.ts` 直接导入两个真实包；`npm run typecheck` 通过；`tests/contract.test.ts` 与 `npm run evidence:loader` 用真实 `cordis-plugin-loader` 挂载 6 个工具、dsh 编译 schema、卸载后归零 |
 | `HostContext` 适配器 | **部分** | `src/host/host-context.ts` 的 `MemoryHostContext` 绑定单一 session/租户/学生，未授权与撤回同意 fail closed；`tests/host-adapters.test.ts` 覆盖。**未完成**：真实身份提供方、KMS/签名会话、跨进程租户存储 |
 | 宿主孪生适配器 | **部分** | `src/host/twin-adapter.ts` 的 `MemoryHostTwin` 支持 append-only、`eventId` 幂等、版本/回滚、可注入来源认证、追加式审计、observed/simulated 硬隔离；`tests/host-adapters.test.ts` 覆盖。**未完成**：真实签名 attestation/KMS、持久化存储、保留期与删除传播 |
 | 身份、租户、同意作用域 | **部分** | `src/host/consent.ts` 的显式、可撤回 scope + session 绑定；撤回后读取/写入均拒绝并有审计。**未完成**：真实同意记录来源、法定监护人流程、跨服务撤销传播 |
@@ -385,14 +422,15 @@ npm run evidence:loader
 `src/index.ts` 挂载插件。本机 Node `v24.22.1` 下的输出：
 
 ```text
-AEH Step 4 isolated Cordis/dsh loader evidence
+AEH Step 4+5 isolated Cordis/dsh loader evidence
 - node: v24.22.1
 - @deepseek-ai/cordis: 4.0.5
 - @deepseek-ai/dsh-tools: 0.2.1-rc.3
 - @deepseek-ai/cordis-plugin-loader: 1.0.6
-- loader entry: ad2701e6
-- mounted tools: aeh_check_curriculum, aeh_prepare_intervention, aeh_schedule_review, aeh_select_probe, aeh_update_hypotheses
+- loader entry: a1f7de26
+- mounted tools: aeh_check_curriculum, aeh_generate_report, aeh_prepare_intervention, aeh_schedule_review, aeh_select_probe, aeh_update_hypotheses
 - authorised gate decision: {"allowed":true,"reasons":[],"allowedKcs":["kc.fraction.add","kc.fraction.equiv","kc.place.value"],"itemId":"item.fraction.add.001","mode":"learn","policy":"aeh.curriculum_gate.v1"}
+- report data-minimization: {"authorized_aggregate_events_only":true,"raw_student_data_included":false,"event_refs_included":false,"source_events_used":1,"source_events_excluded":0,"authorized_scopes":["educational_report","teacher_report"]}
 - invalid-argument code: INVALID_ARGS
 - cancellation code: ABORTED_BEFORE_DISPATCH
 - timeout code: TOOL_TIMEOUT
@@ -404,6 +442,20 @@ OK: loader mount, dsh schema validation, cancellation, timeout, and unload verif
 `dsh-plugin/node_modules`（缓存 `dsh-plugin/.npm-cache`），不读也不写 `~/.dsh/`，
 不改动 `~/workspace/deepseek-harness` 克隆或 npx dsh，也不会把插件加载进正在运行
 本任务的 harness 会话。
+
+### Step 5 完成情况
+
+状态图例同上：**已完成** = 在本目录合成数据上实现并有测试；**部分** = 最小模型
+完成，生产项未完成。
+
+| Step 5 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 报告插件（只接收已授权聚合事件） | **已完成（合成数据/隔离实例）** | `src/report.ts` 对应 `aeh/report.py` 边界；`aeh_generate_report` 参数 schema 闭合（`additionalProperties: false`），dsh 编译阶段即拒绝原始字段；`report.ts` 运行时白名单二次拒绝；输出无 `aggregateRef`/原始数据。`tests/report.test.ts`（8）、`tests/contract.test.ts` 报告契约测试、`tests/invariants.test.ts` 报告断言覆盖。**残留**：真实身份/同意网关、法定监护人流程、跨服务审计 |
+| 文件事件存储（append-only/幂等/版本回滚/保留期/删除传播） | **部分** | `src/host/file-event-store.ts` 默认 `enabled: false`，只接受 synthetic root/学生；`events.jsonl` append-only + SHA-256 完整性校验（非签名）、`eventRef` 幂等、委托 `MemoryHostTwin` 版本/回滚、`retentionDays` 与 `twin:observe` 撤回写 `tombstones.jsonl` 并拒绝后续读写/`load()`；持久化记录不含 payload。`tests/persistence.test.ts`（8）覆盖。**残留**：跨服务删除传播、事务/乐观并发、加密、备份生命周期、真实 KMS attestation |
+| 评测脚本与报告模板（模拟收益/真实迁移分离） | **已完成（合成数据）** | `aeh/evaluation.py` 的 `FrozenEvalSet`（train/explanation/transfer 分片隔离、transfer `seen_before=false`、SHA-256 冻结摘要）与 `EvaluationProtocol`（模拟通道只允许非迁移题、真实通道只允许可信来源的独立 unseen 迁移题、`SimulatedOutcome` 不能进入真实通道）；`aeh/eval_cli.py` 可运行并只报告模拟收益、真实迁移为空；`docs/evaluation-report-template.md`；`tests/test_evaluation.py`（17）。**残留**：真实 RCT/对照组、延迟保持、跨知识迁移、不良效果测量 |
+
+CI 无新增外部服务：Python job 直接运行 stdlib 评测脚本，Node job 仍是 `npm ci`
++ `tsc --noEmit` + `node --test` + 隔离 loader 证据。
 
 ### P1：上线前应补齐
 
@@ -419,12 +471,15 @@ OK: loader mount, dsh schema validation, cancellation, timeout, and unload verif
    泄露审查；保持无网络/无任意文件。
 6. **FSRS 校准**：当前参数是规范 §8.3 的示意值；生产应按实际版本、优化器和
    人群校准，并保留模型版本与不确定性。
-7. **报告插件**：只接收已授权聚合事件，复用 Step 2 `report.py` 的边界。
+7. **报告插件**：Step 5 已完成最小实现（`src/report.ts` + `aeh_generate_report`）。
+   残留：真实身份/同意网关、报告受众的法定流程、跨服务审计。
 8. **CI**：已在 `.github/workflows/ci.yml` 的 Node 24 job 中加入
    `npm ci`（`dsh-plugin/` 内，独立缓存）、`npm run typecheck`、`node --test`
-   与 `npm run evidence:loader`。
+   与 `npm run evidence:loader`；Python job 另加一个离线评测脚本步骤（无外部服务）。
 9. **本地化/展示**：工具描述、错误消息和 UI 卡片需要 locale 与无障碍审查。
-10. **并发/持久化**：事件提交的乐观并发、幂等键、写入协调、回滚与删除传播。
+10. **并发/持久化**：Step 5 已完成单机最小模型（`FileEventStore`：append-only、
+    幂等、版本/回滚、保留期、同意撤回删除传播），仍是本地合成文件、默认关闭。
+    残留：跨服务删除传播、事务/乐观并发、加密、备份生命周期、真实 KMS 签名。
 
 ### 仍需明确的架构决策
 
@@ -442,35 +497,54 @@ OK: loader mount, dsh schema validation, cancellation, timeout, and unload verif
 cd dsh-plugin
 npm install --cache .npm-cache
 npm run typecheck                      # tsc --noEmit
-node --test tests/*.test.ts            # 31 个测试
+node --test tests/*.test.ts            # 48 个测试
 npm run evidence:loader                # 隔离 loader 加载/卸载证据
 ```
 
-Python 核心测试保持不变：
+Python 核心测试（Step 5 后共 185 个）：
 
 ```bash
 python3 -m unittest discover -s tests -v
+python3 -m aeh.eval_cli                 # 可运行的合成评测报告
+python3 -m aeh.eval_cli --json          # 机器可读
 ```
 
-Node 测试分三层：
+Node 测试分五层：
 
 - `tests/invariants.test.ts`：13 个离线不变量测试，用结构化替身驱动插件注册与
   纯逻辑（门禁拒绝、preview 锁定、模拟隔离、证据绑定 mastery、回滚、记忆权重、
-  FSRS 反解、假设归一化、诊断门禁复检与跳过、干预训练/迁移隔离、默认权限拒绝）。
+  FSRS 反解、假设归一化、诊断门禁复检与跳过、干预训练/迁移隔离、默认权限拒绝、
+  报告边界）。
 - `tests/host-adapters.test.ts`：12 个宿主适配器测试（session/租户绑定、同意撤回、
   来源认证、幂等冲突、模拟隔离、版本/回滚、审计脱敏、审批幂等、交付门禁、工具
   只准备不交付）。
-- `tests/contract.test.ts`：6 个真实 Cordis/dsh 运行时契约测试（loader 挂载与
-  schema、参数校验、授权/未授权、取消、超时、卸载清理）。
+- `tests/report.test.ts`：8 个聚合报告边界测试（字段白名单、受众 scope 收窄、
+  跨学生/窗口/授权/重复排除、去重、待关注标记、输出不含 ref/原始数据）。
+- `tests/persistence.test.ts`：8 个文件事件存储测试（默认关闭、合成目录/学生守卫、
+  append-only 与幂等、真实来源限制、重开加载与篡改检测、版本回滚、保留期墓碑、
+  同意撤回删除传播与读取拒绝）。
+- `tests/contract.test.ts`：7 个真实 Cordis/dsh 运行时契约测试（loader 挂载与
+  schema、参数校验、报告工具闭合 schema 与原始字段拒绝、授权/未授权、取消、超时、
+  卸载清理）。
+
+Python 侧新增 `tests/test_evaluation.py`（17 个）：冻结集摘要与分片隔离、迁移题
+unseen、模拟不能进迁移通道、真实迁移只接受可信来源、模拟数据不能重标为真实证据、
+报告分节与防自证声明、CLI 可运行。
 
 ## 11. 已知 TODO / 未实现
 
 - 尚未在生产 dsh 会话中挂载；本轮只在独立隔离的 Cordis/dsh 测试实例中验证。
-- 生产鉴权/KMS/签名 attestation、持久化孪生存储、租户隔离、保留期与删除传播未做；
-  `MemoryHostTwin` 的 `verifyAttestation` 是接缝，不是密码学。
-- 真实交付 UI/LMS 通道、审批后台、独立评测器和回滚流水线未做。
+- 生产鉴权/KMS/签名 attestation、跨服务租户隔离、生产级持久化未做；
+  `MemoryHostTwin.verifyAttestation` 与 `FileEventStore` 的 checksum 是接缝/完整性
+  校验，不是密码学来源证明。单机最小保留期与同意撤回删除传播已做（见 §9 Step 5），
+  但跨服务/备份/向量索引的删除传播未做。
+- 真实交付 UI/LMS 通道、审批后台、独立评测器与回滚流水线未做。
 - 没有真实 LLM 生成、OCR、图片脱敏、数学判题或内容安全服务。
-- 没有报告插件；Step 2 的报告仍是 Python 离线实现。
+- 报告插件是最小策略骨架，不是身份/同意服务：真实身份网关、同意记录来源、法定
+  监护人流程、审计与保留期仍需宿主实现；Step 2 的 `aeh/report.py` 仍保留为离线
+  Python 参考实现。
+- 评测协议只提供冻结集隔离、模拟/真实分离与防自证约束；没有真实 RCT/对照组、
+  延迟保持、跨知识迁移与不良效果测量，且本仓库只用合成数据。
 - 没有自进化候选—隔离评测—批准—灰度—回滚流水线。
 - 输出 schema 仍宽松（`type: 'json'`；参数对象开放但工具体只读白名单字段）；
   locale、速率限制、可观察性和跨进程并发控制未实现。

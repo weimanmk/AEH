@@ -59,10 +59,15 @@
 
 完成标准：`npm run typecheck` 通过；`node --test` 通过；`python3 -m unittest discover -s tests -v` 全部通过；有一份真实 loader 加载/卸载的运行证据；P0 清单中仍未完成项在文档中如实列出，不假装已实现。
 
-### Step 5（下一轮，不在本轮做）
+### Step 5（本轮）
 
-- 报告插件：只接收已授权聚合事件的 dsh 工具，复用 Step 2 `report.py` 的边界；持久化与删除传播的最小模型（事件存储、保留期、同意撤回），仍用合成数据。
-- 评测体系（规范 §19）：独立冻结评测集、模拟收益与真实迁移分离的评测脚本，不自证。
+- 报告插件：新增只接收已授权聚合事件的 dsh 工具 `aeh_generate_report`，复用 Step 2 `report.py` 的边界（固定字段、受众 scope 收窄、跨学生/窗口/授权/重复排除），输出最小化聚合报告，不接受也不输出原始题目/答案/图片/事件 id；dsh schema 闭合 + 运行时字段白名单双重拒绝。
+- 持久化与删除传播的最小模型：在 Step 4 内存孪生适配器之上增加默认关闭的文件事件存储 `FileEventStore`（本地合成目录，`enabled: false` 默认）；append-only、按事件幂等、SHA-256 完整性校验（非签名）、版本/回滚、保留期墓碑，以及同意撤回后的读写 fail-closed 与删除传播；持久化记录不含 payload。
+- 评测体系（规范 §19）：`aeh/evaluation.py` 提供不可变、内容寻址的冻结评测集，train/explanation/transfer 分片隔离、迁移题强制 unseen；模拟收益与真实迁移分通道计算并分开报告，模拟数据不能进入真实通道或自证真实学习效果；`aeh/eval_cli.py` 可运行，`docs/evaluation-report-template.md` 为报告模板，`tests/test_evaluation.py` 覆盖隔离与防自证。
+- 更新 `docs/dsh-integration.md`（Step 5 完成情况、P1、TODO）与 `README.md`（Step 5 一节、目录结构、测试与 CI 说明）；更新 `.github/workflows/ci.yml` 增加离线评测脚本步骤（无新增外部服务）。
+- 不引入真实学生数据，不写密钥，不修改 `references/` 与 `spec/`，不破坏既有 Python / TS 测试；`tsc --noEmit` 与 loader 契约测试（独立隔离实例）继续通过。
+
+完成标准：`python3 -m unittest discover -s tests -v` 全部通过；`python3 -m aeh.eval_cli` 可运行；`npm run typecheck` 通过；`node --test tests/*.test.ts` 全部通过；`npm run evidence:loader` 仍在独立实例中成功；未完成项在文档中如实列出，不假装已实现。
 
 ### Step 6（下一轮，不在本轮做）
 
