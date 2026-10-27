@@ -1,4 +1,4 @@
-# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9 + Step 10 + Step 11）
+# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9 + Step 10 + Step 11 + Step 12 + Step 13 + Step 14 + Step 15 + Step 16 + Step 17 + Step 18）
 
 状态：**已用真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` 替换离线适配层，
 并在一个独立隔离的 Cordis loader 实例中完成加载/卸载与工具契约测试**。Step 5 在
@@ -20,9 +20,18 @@ opaque itemId 与标注摘要，不返回题目原文。Step 10 增加习题演�
 候选带来源/声明式变更/受影响 KC、先过 fail-closed 门禁再进隔离沙箱、候选池要求
 “沙箱合格 + 题库审核通过”）与动态模拟实验室（独立会话状态与独立假设快照、只收
 simulated 来源的事件日志、`observedWrites` 恒为 0、配置与结果内容寻址可复现、模拟
-收益与真实迁移分通道报告）。仍**未**接入真实学生数据，也**未**加载进任何正在运行的
-dsh 会话。本文说明 Step 1 核心如何映射为教育插件与工具、默认权限边界，以及真正接入
-dsh 运行时还需要补什么。
+收益与真实迁移分通道报告）。Step 14 补全主动诊断（规范 §7）：`aeh/diagnosis.py` 与
+`src/core/diagnosis.ts` 支持从首个偏离步骤反向展开误解/先修/偶发失误解释、把“不确定
+的答案”加入信息增益目标、以及带确定性终止原因（跳过 / 题数·时长·负担上限 / 置信度·
+熵收敛 / 无可用题 / 显式停止）的诊断会话状态机；仍是合成内容，工具目录仍为六个。Step 15 增加教学策略层（规范 §10）：
+fail-closed 策略路由、预习—学校—AI 强化—复习的日常协同计划、可执行的检索/间隔/交错
+学习科学计划，以及学科无关的 KC/证据/策略接口与数学、物理两个示例（规范 §17/§18）；
+仍只在核心模块内，不新增工具。Step 16 补齐数据模型与 Harness 状态机（规范 §12/§13/§15.3）：
+`aeh/services.py` 与 `src/core/services.ts` 提供事件存储、Profile/Bundle、内容库、评测服务的
+接口定义与内存/文件双实现，以及乐观并发、幂等键、写入协调与 23 状态学习闭环状态机。
+仍**未**接入真实学生数据，也**未**加载进任何正在运行的
+dsh 会话。本文说明 Step 1
+核心如何映射为教育插件与工具、默认权限边界，以及真正接入 dsh 运行时还需要补什么。
 
 Step 6 不修改 `aeh/` 的 Step 1/2/5 行为（只新增 `aeh/evolution.py`）与插件工具
 目录（仍是六个模型可调用工具），不接入真实学生数据，不复制
@@ -35,6 +44,13 @@ Step 6 不修改 `aeh/` 的 Step 1/2/5 行为（只新增 `aeh/evolution.py`）�
 工作：演化只重采样结构化合成标注与受控参数，不生成题干/答案/提示/图片文本；模拟
 实验室只在内存中对合成行为模型采样，事件日志只接受 simulated 来源；未改动运行用 dsh，
 未接入真实学生数据。
+
+Step 18 完成**独立隔离实例中的真实会话验收**：在 `step18/` 下自建 `DSH_HOME`、profile
+与 `@deepseek-ai/dsh@0.2.1-rc.3` 本地安装，用 `dsh-plugin/e2e/aeh-e2e-entry.ts` 把合成
+`MemoryHostContext` 绑定进真实插件，经 Sidrune `deepseek-v4-1-flash` 跑通一次
+“门禁 → 诊断 → 复习 → 报告”六工具会话；命令、事件流、会话日志与摘要都在
+`step18/evidence/`。运行中的 `~/.dsh/`、npx 安装的 dsh 与 harness 源码克隆均未被读写，
+也未被加载 AEH 插件。
 
 ## 1. 目标与非目标
 
@@ -93,7 +109,9 @@ dsh-plugin/
       twin.ts               # 对应 aeh/twin.py（宿主侧，不暴露写工具）
       memory.ts             # 对应 aeh/memory.py
       hypothesis.ts         # 对应 aeh/hypothesis.py
-      diagnosis.ts          # 对应 aeh/diagnosis.py
+      diagnosis.ts          # Step 14：对应 aeh/diagnosis.py（反向溯源/信息增益/状态机）
+      teaching-strategy.ts  # Step 15：对应 aeh/teaching_strategy.py（策略路由/日常协同/学科适配/学习科学）
+      services.ts           # Step 16：对应 aeh/services.py（存储服务边界 + Harness 状态机）
       exercise.ts           # 对应 aeh/exercise.py
   tests/
     invariants.test.ts      # 13 个离线不变量测试（结构化替身）
@@ -107,6 +125,11 @@ dsh-plugin/
     curriculum-graph.test.ts # Step 9：19 个图/题库/RAG/检索后门禁测试
     exercise-evolution.test.ts # Step 10：21 个演化/模拟/隔离/共享 fixture 测试
     fsrs-calibration.test.ts   # Step 11：46 个校准/不确定性/候选门禁/共享 fixture 测试
+    twin-step12.test.ts        # Step 12：24 个长期孪生生命周期/审批/绑定测试
+    hypothesis-step13.test.ts  # Step 13：30 个虚拟学生群规则/保真度/快照测试
+    diagnosis-step14.test.ts   # Step 14：31 个反向溯源/信息增益/状态机/共享 fixture 测试
+    teaching-strategy-step15.test.ts # Step 15：54 个策略/日常协同/学习科学/学科适配测试
+    services-step16.test.ts         # Step 16：64 个存储/并发/幂等/评测隔离/状态机测试
 ```
 
 `src/dsh.ts` 现在直接导入真实 `@deepseek-ai/cordis` 与
@@ -135,6 +158,7 @@ import type { Context } from '@deepseek-ai/cordis'
 | `diagnosis.py` | `core/diagnosis.ts` | 工具候选选择策略 | `aeh_select_probe` |
 | `exercise.py` | `core/exercise.ts` | 干预准备/校验流水线 | `aeh_prepare_intervention` |
 | `curriculum_graph.py` | `core/curriculum-graph.ts` | 宿主/服务层图与题库解析 + 检索后门禁 | **无新工具**（宿主 API） |
+| `teaching_strategy.py` | `core/teaching-strategy.ts` | 策略路由、日常协同、学科适配与学习科学计划 | **无新工具**（核心/宿主 API） |
 
 ### 3.1 课程门禁：不可绕过的 fail-closed 检查
 
@@ -203,7 +227,8 @@ difficulty、目标保持率对应的下次间隔和计数；不写数据库、�
 
 `HypothesisSet` 支持 `spawn` / `split` / `merge` / `prune` / `reweight`，并始终
 保留显式 `unknown` 桶。`reweight` 的贝叶斯后验包含噪声项，单次对错不会让后验
-虚假地变得极尖。
+虚假地变得极尖。Step 13 在此之上补全了生成/匹配/分裂/合并/淘汰的完整规则、
+`unknown` 桶管理、假设保真度指标与会话快照边界，见 §3.11。
 
 `aeh_update_hypotheses` 接收一个快照、执行一个操作、返回下一个快照。它没有长期
 证据写入，也没有跨会话持久化；`unknown` 领先时 `dominantId` 为 `null`。这对应
@@ -216,11 +241,19 @@ difficulty、目标保持率对应的下次间隔和计数；不写数据库、�
 ```text
 IG(q) + alpha * teachingValue(q)
       - beta * time(q) - gamma * risk(q) - delta * cognitiveLoad(q)
+      - zeta * answerUncertainty(q)
 ```
 
 只有 host-catalog 能解析、且重新通过课程门禁的候选参与排序。`skipped: true` 时
 返回 `selection: null`；无候选通过时也返回 `null`；宿主无法授权 progress 时返回
 `blockedReason: "progress_unavailable"`。工具不强制出题，不记录作答。
+
+Step 14 在核心模块中补全了这一步的两端（见 §3.12）：`predictive_uncertainty` /
+`predictiveUncertainty` 惩罚“预测接近掷硬币”的题，`trace_backward` / `traceBackward`
+从错误步骤回溯到 KC/误解并把权重喂给选题，`DiagnosisSession` 是显式的
+出题—作答—更新—终止状态机，`BurdenBudget` 限制总题数/时长/认知负担。这些能力目前
+只在 `aeh/diagnosis.py` 与 `src/core/diagnosis.ts` 内可用；工具只增加
+`answerUncertainty` 输出与可选 `zeta` 输入，不新增第六个以外的工具。
 
 ### 3.6 习题干预包：准备与交付分离
 
@@ -371,6 +404,43 @@ Python `aeh/fsrs_calibration.py` 与 TypeScript `core/fsrs-calibration.ts` 是�
   `reportFingerprint`、参数、估计区间、metrics、适用性逐字节一致。
 - **边界**：没有新增模型可调用工具；模型不能触发校准、批准或激活。插件工具目录仍是
   六个。`references/awesome-fsrs` 只作机制参考，未整体复制其代码。
+
+### 3.11 虚拟学生群完整规则、保真度与快照边界（Step 13）
+
+`aeh/hypothesis.py` 与 `core/hypothesis.ts` 是同一行为的双实现，共享
+`tests/fixtures/hypothesis_step13.json`。它把规范 §6.1–6.4、§19.3 拆成可测试的规则：
+
+- **生成（Spawn/Generate）**：`spawn(..., trigger=...)` 记录规范 §6.2 的触发条件
+  （`unexplained_step` / `new_question_type` / `conflicting_evidence` /
+  `new_subject_scope` / `diversity_collapse`）；`generate(observations, candidates)`
+  只在“当前没有任何候选把某个行为预测到阈值以上”且新候选在该行为上至少提升
+  `min_gain` 时才生成，避免机械复制权重最高的模型。
+- **匹配（Match）**：`match(observations)` 用每个假设自己的
+  `predicted_observable_behaviors` 计算 Bernoulli 似然（带 `smoothing` 防止 0/1
+  概率），再走带噪声的贝叶斯后验更新；没有被任何候选建模的行为作为
+  `unexplainedBehaviors` 返回。似然历史只用于本步的淘汰规则，不回写长期孪生。
+- **分裂（Split）**：`splitDistinguishable(...)` 先检查子假设两两的
+  `hypothesisSimilarity()` 是否 ≤ `maxSimilarity`，不可区分的分裂被拒绝，父假设保持
+  `active`。相似度 = 0.6·行为预测相似 + 0.2·`bug_rules` Jaccard + 0.2·策略 Jaccard，
+  缺失预测按 chance 处理。
+- **合并（Merge）**：`mergeIndistinguishable(...)` 对相似度 ≥ 阈值的连通分量合并，
+  新假设保留 `merged_from` 来源历史，`bug_rules`/`strategy_policy` 取并集、行为预测取
+  均值、知识假设取权重最高成员。
+- **淘汰（Prune/Archive）**：`pruneWeak`（后验过低）、`pruneContradicted`
+  （至少 `min_matches` 次匹配的平均似然过低）、`pruneUninformative`（与更强的候选不可
+  区分、没有独特解释力）都只把质量移入 `unknown`，绝不转给另一个候选。
+- **unknown 桶管理**：`setUnknown`、`requestRealEvidence` / `resolveEvidenceRequest`、
+  `unknownReasons` 记录原因；`unknown` 领先（`dominant()` 为 `None`）时自动标记需要真实
+  证据，而不是强行选一个候选。
+- **保真度指标（§19.3）**：`fidelity(observations)` 输出 Brier、log loss、ECE、
+  accuracy、coverage、`unknown` 占比、有效假设数（1/Σw²）、最大权重，以及错误类型 /
+  错误步骤 / 策略与主导假设规则的一致率；`recent_evidence_id` 给出“新证据到达后是否
+  仍固守旧状态”的 `anti_mismatch`。无法计算时返回 `None` 而不是编造值。
+- **快照边界**：`toState()/fromState()` 是工具边界上的最小 wire 形状（保持六个工具的
+  输出 schema 不变）；`toSnapshot()/fromSnapshot()` 额外携带 `unknown` 原因、匹配统计与
+  `bound_twin_version`，并显式带 `persistsToLongTermTwin: false`。
+  `HypothesisSnapshotStore` 做 session/agent scope、TTL 与容量上限，跨会话读/删
+  fail-closed；`persistToTwin()` 永远抛错。生产环境仍需持久化、访问控制的 session store。
 
 ## 4. Cordis 插件结构
 
@@ -770,6 +840,149 @@ Step 8 的 TypeScript 测试为 `tests/security.test.ts`（19），步骤完成�
 | Python/TS 双实现行为一致，共享 fixture 数值一致 | **已完成** | 共享 `tests/fixtures/fsrs_calibration_step11.json`：`datasetDigest`/`configFingerprint`/`reportFingerprint`/参数/估计/`metrics`/`applicability` 逐字节一致；拟合路径只用 `+ - * / sqrt`。**残留**：无 |
 | Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 340 通过（新增 50）；Node 198 通过（新增 46）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
 
+### Step 12 完成情况（长期孪生体生命周期，规范 §5）
+
+状态图例同上。Step 12 不新增模型工具（仍是六个），不改运行用 dsh，不接入真实学生
+数据；所有事件、观测、参数与假设都是合成内容。长期孪生的 checkpoint、校准审批与
+假设 binding 目前只在内存中，真实持久化/跨进程并发未做。
+
+| Step 12 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 事件溯源全生命周期：append / version / checkpoint / rollback / replay | **已完成** | `aeh/twin.py` 与 `src/core/twin.ts`：真实事件 append-only，推断步统一日志并产生 `version`；`TwinCheckpoint`/`asDict()`、`restore_checkpoint()`/`rollback()`/`replay()` 只回退推断状态，真实证据与 `evidence_revision` 不变；重放重新校验证据 id。**残留**：checkpoint 与事件日志的生产持久化、跨进程并发与保留期 |
+| 观察 / 模拟严格隔离扩展到记忆与假设 | **已完成** | `record_memory_review()`、`bind_hypotheses()`、`evolve_hypotheses()` 只接受 observed cursor 中存在的 id；模拟 id 无法提供证据；`promote_simulated()` 永远 fail closed。**残留**：无（合成范围内） |
+| 多 KC 长期记忆：FSRS stability/difficulty 随时间衰减 + 复习更新 | **已完成（合成数据）** | `MemoryParameters`（6 参数 + version，默认等于旧示意公式）、参数化 `update_memory()`、`apply_forgetting()`、`memory_health()`/`aggregate_memory()`；逾期只提高不确定性并标记 `needs_calibration`，绝不降低 stability/difficulty。**残留**：真实保持/遗忘数据、生产 FSRS 版本与参数注册表 |
+| Step 11 校准参数作为候选挂起，显式批准后才生效 | **已完成** | `propose_memory_calibration()` / `propose_memory_calibration_from_candidate()` 只挂起；`activate_memory_calibration()` 要求非空 approval id + actor，否则 `CalibrationApprovalRequired`；激活只切换后续 review 的参数版本，`rollback_memory_calibration()` 从截断日志重新推导生效参数。**残留**：真实审批后台、生产配置热切换、持久审计 |
+| 假设集随证据演化并绑定孪生版本 | **已完成** | `HypothesisSet.revision/bind_twin_version/prune_weak/clone`；`bind_hypotheses()` 与 `evolve_hypotheses()` 支持 spawn/split/reweight/merge/prune，在 clone 上执行并绑定新 twin version；回滚恢复绑定集合与 revision。**残留**：跨会话假设集持久化与真实候选来源 |
+| Python/TS 双实现行为一致，共享 fixture | **已完成** | 共享 `tests/fixtures/twin_step12.json`：checkpoint 的 version/evidenceRevision/knowledge/memory/hypothesisRevision/hypothesisWeights/observedEvidenceIds/参数版本逐值一致；两侧 ISO 时间戳拼写不同，fixture 不比较时间字段。**残留**：无（合成范围内） |
+| Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 391 通过（Step 12 新增 51）；Node 222 通过（新增 24）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
+
+
+### Step 13 完成情况（虚拟学生群完整实现，规范 §6 / §19.3）
+
+状态图例同上。Step 13 不新增模型工具（仍是六个），不改运行用 dsh，不接入真实学生
+数据；假设、观测与快照都是合成内容。生成/匹配/分裂/合并/淘汰规则、保真度指标、
+unknown 桶与会话快照边界都在 Python 与 TypeScript 双实现内完成并共享 fixture。
+
+| Step 13 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 生成规则：证据约束的 spawn/generate + 触发条件 | **已完成** | `spawn(..., trigger=...)` 记录 `SPAWN_*`；`generate()` 只在阈值以上无解释且 `min_gain` 达标时生成；`resample` 仍保留。**残留**：真实“新题型/冲突证据”检测器与 LLM 生成候选接入 |
+| 匹配规则：行为似然 + 带噪声后验 | **已完成** | `HypothesisSet.match()`（两侧）：按 `predicted_observable_behaviors` 算 Bernoulli 似然、smoothing、匹配统计，返回 `unexplainedBehaviors`；更新仍走 `reweight` 噪声项。**残留**：真实步骤级似然模型与概率校准 |
+| 分裂规则：可区分才分裂 | **已完成** | `split_distinguishable()` / `splitDistinguishable()`：子代相似度 > 阈值即拒绝，父假设保持 active。**残留**：真实诊断题的区分性来自 `diagnosis.py`，本步只提供集合侧规则 |
+| 合并规则：不可区分才合并、保留来源 | **已完成** | `merge_indistinguishable()` / `mergeIndistinguishable()`：连通分量合并、`merged_from` 保留、规则并集、行为均值。**残留**：无（合成范围内） |
+| 淘汰规则：弱、矛盾、无独特解释力 | **已完成** | `prune_weak` / `prune_contradicted`（≥min_matches 的均值似然）/ `prune_uninformative`；质量只进 `unknown`。**残留**：长期真实证据驱动的归档与恢复策略 |
+| unknown 桶管理 | **已完成** | `set_unknown`、`request_real_evidence`、`resolve_evidence_request`、`unknown_reasons`、`needs_real_evidence`；unknown 领先时自动请求真实证据。**残留**：无（合成范围内） |
+| 假设保真度指标（§19.3） | **已完成（合成数据）** | `fidelity()`：Brier / log loss / ECE / accuracy / coverage / unknown 占比 / 有效假设数 / 最大权重 / 错误类型·步骤·策略一致率 / `anti_mismatch`；不可计算处返回 `None`。**残留**：真实留出步骤、真实教师根因标签与真实人群校准 |
+| 假设快照的会话隔离与持久化边界 | **已完成（内存）** | `to_snapshot`/`from_snapshot` + `HypothesisSnapshotStore`（session/agent scope、TTL、容量、跨会话 fail-closed），`persists_to_long_term_twin=false`，`persist_to_twin()` 永远抛错。**残留**：跨进程/持久化 session store、真实 dsh session 服务注入 |
+| Python/TS 双实现行为一致，共享 fixture | **已完成** | 共享 `tests/fixtures/hypothesis_step13.json`：初始权重、相似度、匹配似然/后验、generate/split/merge/prune 结果、fidelity 指标、快照权重逐值一致。**残留**：无（合成范围内） |
+| Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 421 通过（Step 13 新增 30）；Node 252 通过（新增 30）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
+| 规则层暴露为工具操作 | **未完成** | `generate` / `match` / `fidelity` / `merge_indistinguishable` 等目前只在核心模块可用；`aeh_update_hypotheses` 仍只有 spawn/split/merge/prune/reweight/snapshot，避免改变六个闭合输出 schema。**需要**：schema 版本迁移与审批后再扩展工具面 |
+
+
+### Step 14 完成情况（主动诊断与反向溯源完整实现，规范 §7）
+
+状态图例同上。Step 14 不新增模型工具（仍是六个），不改运行用 dsh，不接入真实学生
+数据；错误规则图、步骤、候选与作答都是合成内容。反向溯源、信息增益、诊断会话状态机
+与负担上限在 Python 与 TypeScript 双实现内完成并共享 fixture。
+
+| Step 14 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 反向溯源 Observe→Localize→Expand | **已完成（合成）** | `order_steps`/`orderSteps` 稳定拓扑排序，`localize_first_deviation`/`localizeFirstDeviation` 定位首个偏离；`trace_backward`/`traceBackward` 展开误解、先修规则/KC 缺口与 slip，孤立错误提升 slip 先验、已做对的上游按 `contradiction_decay` 降权，结果含归一化权重与显式 `unknown`，`to_hypotheses`/`traceToHypotheses` 可转成假设。**残留**：真实步骤解析/符号推理、真实教师根因标签 |
+| 信息增益计算 | **已完成** | 原 `IG + α·teaching − β·time − γ·risk − δ·load` 增加 `ζ·predictive_uncertainty`（预测作答正确事件的伯努利熵）；`ProbeSelection` 增加 `answerUncertainty` 分解。**残留**：真实步骤级似然与概率校准 |
+| 诊断会话状态机（出题—作答—更新—终止条件） | **已完成（内存）** | `DiagnosisSession` 状态 `idle/awaiting_answer/updated/terminated`；非法转移抛 `DiagnosisStateError`；`should_terminate`/`shouldTerminate` 给出确定性原因（跳过/显式、题数、时长、负担、置信度、熵、无可用题），`unknown` 领先时禁止判定“已解决”；记录 transition 历史与实际信息增益。**残留**：跨进程持久化、真实 dsh session 服务注入 |
+| 学生跳过与负担上限 | **已完成** | `skip()` 随时终止且不强制出题；`BurdenBudget{max_questions,max_total_minutes,max_total_load}` 与 `BurdenState` 累计题数/时长/认知负担，`max_questions=0` 拒绝开始。**残留**：按学生/时段的生产配额与跨会话预算 |
+| Python/TS 双实现行为一致，共享 fixture | **已完成** | `tests/fixtures/diagnosis_step14.json`（合成）由两侧测试读取，对首次偏离、解释集合与权重、逐候选 IG/不确定度/分数、选中项、会话状态序列、终止原因与负担逐值一致。**残留**：无（合成范围内） |
+| 工具面 | **未完成（有意）** | 仍是六个工具；`aeh_select_probe` 新增 `answerUncertainty` 输出与可选 `zeta` 输入，但反向溯源、状态机、负担上限未暴露为工具操作。**需要**：输出 schema 版本迁移与审批 |
+| Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 463 通过（Step 14 新增 42）；Node 283 通过（新增 31）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
+
+
+### Step 15 完成情况（教学策略、日常协同、跨学科与学习科学，规范 §10 / §17 / §18）
+
+状态图例同上。Step 15 不新增模型工具（仍是六个），不改运行用 dsh，不接入真实学生
+数据；所有 KC、日程、证据、题目与学科示例均为合成内容。策略层只做“下一步做什么”的
+选择与计划，任何实际题目仍必须经过课程门禁，宿主交付仍需审批。
+
+| Step 15 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 教学策略路由器（§10.1） | **已完成（合成）** | `select_strategy` / `selectStrategy` 覆盖九个规范动作：诊断题、最小提示、示范例题、微课、定向练习、迁移任务、间隔复习、进度确认、直接回答。决策包含 `targetKcs`、`methodIds`、分钟数、理由、护栏、`requiresConfirmation`、`blocked`，并始终带 `deliveryRequiresGate=true`。**残留**：真实教师/内容库的任务意图与策略效果校准 |
+| 策略选择规则与护栏 | **已完成（fail-closed）** | 规则优先级固定：证据来源/模拟隔离 → 考试诚信 → 时间预算 → 学校进度确认 → 考试范围确认 → 预习范围 → 显式求助/时间压力 → 假设冲突 → 先修/误解/程序错误/迁移/复习。护栏覆盖未确认进度、未确认预习、未确认考试范围、评估进行中、零预算、直接回答关闭、模拟证据不得驱动生产决策。**残留**：生产身份/同意网关与真实学生日程 |
+| 日常协同流程（§10.2） | **已完成（合成）** | `plan_daily_coordination` / `planDailyCoordination` 输出 `preview → school → ai_reinforcement → review` 四阶段；学校阶段固定 0 AI 分钟、`no_action`、`school_time_not_monitored`，不推断课堂掌握。预习只在“下一课确认 + 预习范围确认 + 进度可用”时解锁。**残留**：真实校历/作业系统接入；课堂同步资料未实现 |
+| 动态时间分配（§10.3） | **已完成** | 按预习需求、先修缺口、学校压力、考试压力、复习积压动态分配，总分钟数不超过学习者预算；按 `maxBlockMinutes` 计算休息次数，按 `breakPreference` 计算休息分钟；零预算/评估中直接阻断。**残留**：真实疲劳信号与跨日预算 |
+| 跨学科适配层（§17） | **已完成（两个示例）** | `SubjectAdapter` 共享 KC 前缀、证据种类、验证器、必需证据、策略亲和度与高风险 KC 前缀；`MathSubjectAdapter`（步骤等价/CAS）与 `PhysicsSubjectAdapter`（单位/量纲/受力图/高风险电学）为两个示例。适配失败（不支持的 KC、证据种类、未验证证据）fail-closed；高风险 KC 标记 `safetyRequired`。**残留**：化学、编程、语言、专科实践课适配器；真实学科验证服务与专业监管流程 |
+| 学习科学方法映射（§18） | **已完成（映射 + 3 个可执行计划）** | `LEARNING_SCIENCE_METHODS` 覆盖规范表 16 种方法，每种含动作、使用条件、实现、验证与护栏；**检索练习、间隔、交错**有可执行计划：`plan_retrieval_practice`（先作答、无答案预览、提示后正确不算独立检索）、`plan_spaced_review`（按当前可提取性排序、由 stability 反解间隔）、`plan_interleaved_practice`（基础理解门槛、尽量不连续同 KC、确定性分块）。其余 13 种标注为 `mapped`，不宣称已自动执行。**残留**：示范例题/渐隐支架/自我解释等尚无独立执行器；真实延迟保持与策略选择率验证 |
+| Python/TS 双实现与共享 fixture | **已完成** | `tests/fixtures/teaching_strategy_step15.json`（合成）由 `tests/test_teaching_strategy.py` 与 `dsh-plugin/tests/teaching-strategy-step15.test.ts` 读取，对策略动作/目标/方法/时长/护栏、日常阶段与预算、检索/间隔/交错序列、学科适配与证据拒绝逐值一致。**残留**：无（合成范围内） |
+| 工具面 | **未完成（有意）** | 仍是六个工具；策略路由、日常计划、学习科学计划与学科适配只在核心/宿主 API 可用，未暴露为模型工具，避免输出 schema 版本迁移和把策略层变成可自由调用的全权工具。**需要**：schema 版本迁移、审批与宿主编排设计 |
+| Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 517 通过（Step 15 新增 54）；Node 337 通过（新增 54）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
+
+### Step 16 完成情况（数据模型、存储服务与 Harness 状态机，规范 §12 / §13 / §15.3）
+
+状态图例同上。Step 16 仍是核心/宿主 API 层的工作，**不新增模型工具**（工具目录仍为
+六个），不接入真实学生数据，不修改运行中的 dsh，也不读写 `~/.dsh/`。Python 与
+TypeScript 共享 `tests/fixtures/services_step16.json`（合成）验证行为一致。
+
+| Step 16 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 事件存储边界（§13.1 / §22.1） | **已完成（内存 + 文件）** | `EventDraft` / `LearningEvent` / `AppendResult` + `EventStore` 抽象；`InMemoryEventStore` 与 `FileEventStore`（JSONL append-only）。信封含 event/stream/type/source/occurred_at/sequence/idempotency_key/session/provenance/payload/schema_version。文件实现重开时校验每条记录的 SHA-256 内容摘要，篡改或混入其他 domain 会抛 `IntegrityError`。**残留**：单机单进程模型，无跨进程锁、加密、保留期与压缩 |
+| 乐观并发与幂等键 | **已完成** | `append(draft, expected_version=...)` 在版本不匹配时抛 `OptimisticConcurrencyError`；同一 `(stream, idempotency_key)` 重放返回原事件（`deduplicated=True`，sequence 不变），但类型/时间/来源/payload 不一致时抛 `IdempotencyConflictError`。event_id 由 `stream + key` 稳定派生。**残留**：键的回收/过期策略未做 |
+| observed / simulated 存储域隔离 | **已完成（fail-closed）** | 两个独立 store/文件；observed store 拒绝 simulated 来源与 `SIMULATION_STARTED/COMPLETED` 事件，simulated store 拒绝 observed 来源。隔离在写入前检查，不依赖调用方。**残留**：生产环境需要独立数据库/租户与审计级隔离 |
+| Profile / Bundle 存储（§13） | **已完成（内存 + 文件）** | `StudentProfile`（stage、guardian_consent、settings、version）与 `ProfileStore.create/get/update`，更新必须带 `expected_version`。`ProfileBundle` 冻结 `student_ref + twin_version + school_progress_version + content_version + created_at` 的内容寻址摘要；同 id 同摘要幂等，同 id 不同摘要抛 `ConflictError`。**残留**：读取时的一致性快照/跨服务事务未做 |
+| 内容库服务（§13） | **已完成（review-gated）** | `ContentRecord` 按 contentId 版本化，含 kcIds、difficulty、reviewState（`draft/approved/retired`）与内容摘要；`put` 带 `expected_version`，同内容重放幂等、旧版本重放返回当前版本、陈旧写入抛冲突。`retrieve` 只返回 `approved`，按 KC + 可选难度过滤并稳定排序，默认上限 10；无批准内容时返回空而不是猜测。**残留**：真实内容仓库、版权/授权元数据与审核工作流 |
+| 评测服务（§15 / §19） | **已完成（隔离 + 防自证）** | `FrozenEvalSet` 不可变、内容寻址、要求 train 与 unseen transfer，transfer 不得 `seen_before`；`EvaluationService` 冻结数据集并执行隔离评测：模拟只能走 train/explanation，真实迁移只接受可信来源（`trusted_grader` 等）、transfer 分片、unseen 且独立作答；模拟数据重标为真实证据抛 `SelfProofError`。运行结果幂等（同 key 同输入返回同一 run，不同输入抛冲突），显式保存 claim / self_proof_guard / limitations；无真实证据时明确写“no real transfer evidence”。**残留**：TypeScript 侧是评测协议的最小镜像（完整协议仍在 `aeh/evaluation.py`），无生产评测数据仓库与统计功效分析 |
+| 写入协调 | **已完成（进程内）** | `WriteCoordinator.recall/remember/run_once` 按 `(stream, idempotency_key)` 记忆化，重复操作只执行一次；事件存储自身再做幂等兜底。**残留**：TypeScript 单线程事件循环下没有 OS 级锁；跨进程写协调需要数据库唯一约束或分布式锁 |
+| Harness 状态机（§12.2） | **已完成（23 状态）** | `HarnessStateMachine` 覆盖规范全部 23 个状态与正常转移；终态 fail-closed（`Completed/Failed/Aborted` 不可再转移）；`advance` 支持幂等键与冲突检测；`.snapshot()` 只含状态、转移理由、退化记录与计数，不含学生作答内容。**残留**：真实 agent 编排、工具调用重试与检查点恢复 |
+| 异常/退化分支（§15.3） | **已完成（12 条）** | `EXCEPTION_BRANCHES` 把规范失败/退化表映射为 12 个分支：OCR 不确定、符号验证不确定、RAG 缺来源、学校进度不明、假设全不匹配、模拟超时、记忆数据稀疏、策略低置信、学生拒绝诊断、异常压力、课程门禁拒绝、内容拒绝。分支带目标状态、退化模式与说明；`rag_source_missing` / `low_confidence_strategy` / `abnormal_pressure` 原地退化不改状态，其余按目标重路由（跨正常边时显式允许）。未知分支抛 `ValidationError`。**残留**：真实监控指标与自动降级阈值 |
+| 有界返工循环 | **已完成** | `register_rejection` 在 `max_rejections`（默认 3）内回到 `ExerciseEvolution`；第 4 次拒绝转 `Failed` 并记录 `rework_budget_exhausted`，不会无限循环。**残留**：预算应按任务/学生配置而非全局常量 |
+| Python/TS 双实现与共享 fixture | **已完成** | `tests/fixtures/services_step16.json` 由 `tests/test_services_step16.py`（66 个）与 `dsh-plugin/tests/services-step16.test.ts`（64 个）读取，对 append/幂等/并发冲突、Profile/Bundle、内容检索、评测均值/增益/真实准确率/来源/claim、状态机脚本/拒绝上限/异常目标逐值一致。**残留**：跨语言摘要算法对非 ASCII 的字节级一致性未单独断言 |
+| 工具面 | **未完成（有意）** | 仍是六个工具；服务与状态机只在核心/宿主 API 可用。**需要**：输出 schema 版本迁移、审批/审计接入与宿主编排设计 |
+| Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 583 通过（Step 16 新增 66）；Node 401 通过（新增 64）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无（合成范围内） |
+
+### Step 17 完成情况（隐私、安全、未成年人保护与指标面板，规范 §20 / §21）
+
+状态图例同上。Step 17 仍是核心 API 层的工作，**不新增模型工具**（工具目录仍为六个），不接入真实学生数据，不修改运行中的 dsh，也不读写 `~/.dsh/`。Python 与 TypeScript 共享 `tests/fixtures/privacy_step17.json`（合成）验证行为一致。
+
+| Step 17 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 同意账本（§21） | **已完成** | `ConsentEvent` / `ConsentLedger` 追加式账本：grant/revoke 永不覆盖历史，重复 consent_id、未知 scope/主体、过期时间早于授权时间或出现在撤回事件上均 fail-closed；`active_scopes(subject, at, age=...)` 只返回在该时刻有效的 scope。**残留**：生产同意记录需身份网关与监护人身份核验 |
+| 未成年人保护（§21） | **已完成** | 未成年人（阈值 18）时 `GUARDIAN_REQUIRED_SCOPES` 中的 scope 只有监护人授权才生效；`research:aggregate` 对未满 18 岁一律不可达。受众访问只收窄不扩大，未知受众/scope 抛错；教师默认不含 `audit:export`。**残留**：真实监护关系核验与年龄核验未做 |
+| 保留期与删除传播（§21） | **已完成** | `RetentionPolicy` 必须为每个数据类给出规则否则 fail-closed；到期判定闭区间且稳定排序。`DeletionCoordinator` 把删除请求传播到所有已注册存储，逐存储返回计数与状态并生成 `DeletionReceipt`，任一失败为 partial、全部失败为 failed，绝不谎报成功；删除后读取直接报错，其他学生不受影响。**残留**：真实跨服务删除传播、加密擦除与备份清除 |
+| 审计导出（§20.3） | **已完成** | `export_audit` 按时间窗与事件类型过滤，默认去标识伪名键，只有显式授权且受众被授权时才保留；拒绝作答/提示/答案等禁止 detail 键与非标量值。导出 bundle 含逐类型/逐结果计数、稳定排序 payload 与内容寻址摘要，Python 与 TypeScript 对同一 fixture 产出相同摘要。**残留**：真实签名 attestation 与 KMS |
+| 指标面板与成本估算（§20） | **已完成** | `METRIC_DEFINITIONS` 覆盖学习/系统/成本三维度并声明聚合方式与是否允许模拟来源；模拟来源不得写入学习类指标，观测/模拟分通道快照，小群体抑制计数。`CostModel` 为纯合成估算，`billing_connected` 恒为 False，不接真实计费。**残留**：生产指标采集与计费接入 |
+| Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 641 通过（Step 17 新增 58）；Node 463 通过（新增 62）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无（合成范围内） |
+
+### Step 18 完成情况（真实会话端到端验收，隔离实例）
+
+状态图例同上。Step 18 不新增业务规则，也不新增第七个工具；它验证的是“真实 dsh
+运行时 + 真实 Cordis 插件 + 真实模型”的端到端链路。全部数据为合成数据，运行中的
+harness 未被修改。
+
+| Step 18 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 独立隔离 dsh 实例 | **已完成** | `step18/runtime` 内独立 `npm install @deepseek-ai/dsh@0.2.1-rc.3`（独立 `step18/.npm-cache`）；`DSH_HOME=step18/home`、profile `aeh-e2e`；未使用 `~/.dsh`、headless 配置或 npx 安装 |
+| 插件在独立实例中加载 | **已完成** | `dsh-plugin/e2e/aeh-e2e-entry.ts` 复用真实 `src/index.ts` 的 `name` / `inject` / `Config` / `apply`，把合成 `MemoryHostContext` 作为宿主绑定注入；`dump-config.txt` 显示 `aeh-education-e2e` 行已插入 |
+| 真实模型会话（Sidrune） | **已完成** | provider `sidrune`、model `deepseek-v4-1-flash`；退出码 0，39 个 JSON 事件，6/6 工具调用与结果，0 错误事件 |
+| 门禁—诊断—复习—报告 | **已完成** | 允许 `item.fraction.add.001`，fail-closed 拒绝 `item.fraction.multiply.001`（`kcs_not_allowed:kc.fraction.multiply`）；选中 `item.fraction.equiv.001`；复习间隔 3.2 天；报告 4 次尝试 / 3 次独立正确 / 1 次提示 / 10 分钟 |
+| 可复现证据 | **已完成** | `step18/evidence/20261027T110556Z/`：`command.txt`、`stdout.jsonl`、`stderr.log`、`session-log/`、`summary.md`、`summary.json`、`metadata.json`、profile 副本与 `dump-config.txt` |
+| 凭证与脱敏 | **已完成** | `custom.sidrune` 的 `hsurr:` 代理凭证只进入子进程 `SIDRUNE_API_KEY`；证据中无 `hsurr:` / `sk-` 明文，命令记录写为 `[surrogate-redacted]` |
+| 运行中 harness 隔离 | **已完成** | 读写均限制在 `step18/`；未修改 `~/.dsh/`、`~/workspace/deepseek-harness` 或 npx 安装；未把插件加载进执行本任务的会话 |
+| 生产接入 | **未完成（有意）** | 仍是单会话、单模型、合成数据；宿主绑定是代码级入口而非可序列化生产配置；未做多租户、配额/计费、审批后台、LMS 交付与崩溃恢复 |
+
+### Step 18 复现命令
+
+```bash
+# 首次：独立安装隔离运行时（只在 step18/ 内）
+mkdir -p step18/runtime
+printf '%s\n' '{"name":"aeh-step18-isolated-dsh-runtime","private":true,"dependencies":{"@deepseek-ai/dsh":"0.2.1-rc.3"}}' > step18/runtime/package.json
+npm install --prefix "$PWD/step18/runtime" --cache "$PWD/step18/.npm-cache" --no-audit --no-fund
+
+# 组合 profile（不调用模型）
+python3 step18/run-e2e.py --dry-run
+
+# 真实会话 + 证据（写入 step18/evidence/<UTC 时间戳>/）
+python3 step18/run-e2e.py
+```
+
+隔离矩阵、合成场景与证据清单见 `step18/README.md`。凭证通过本机已注册的
+`custom.sidrune` connector 取得；换机器需要重新注册，否则无法完成模型调用。
+
 ### P1：上线前应补齐
 
 1. **配置 schema**：**Step 7 已完成**（`src/config.ts` + 入口导出的 Cordis `Config`；
@@ -794,7 +1007,11 @@ Step 8 的 TypeScript 测试为 `tests/security.test.ts`（19），步骤完成�
    参数目前仍是合成数据上的候选，激活只返回冻结配置对象，**不**写掌握度。残留：
    真实版本/人群校准、生产参数注册表与热切换、真实 held-out 冻结集、真实审批后台。
 
-7. **报告插件**：Step 5 已完成最小实现（`src/report.ts` + `aeh_generate_report`）。
+7. **长期孪生**：**Step 12 已完成最小实现**（`aeh/twin.py` + `src/core/twin.ts`：
+   事件溯源 checkpoint/rollback/replay、多 KC 记忆衰减与复习、Step 11 候选审批门禁、
+   假设集五种演化并绑定版本）。残留：生产持久化与跨进程并发、真实审批后台与
+   参数热切换、真实长期保持/遗忘数据。
+8. **报告插件**：Step 5 已完成最小实现（`src/report.ts` + `aeh_generate_report`）。
    残留：真实身份/同意网关、报告受众的法定流程、跨服务审计。
 8. **CI**：已在 `.github/workflows/ci.yml` 的 Node 24 job 中加入
    `npm ci`（`dsh-plugin/` 内，独立缓存）、`npm run typecheck`、`node --test`
@@ -823,13 +1040,21 @@ Step 8 的 TypeScript 测试为 `tests/security.test.ts`（19），步骤完成�
 ```bash
 cd dsh-plugin
 npm install --cache .npm-cache
-npm run typecheck                      # tsc --noEmit
-node --test tests/*.test.ts            # 198 个测试
+npm run typecheck                      # tsc --noEmit（含 e2e 入口）
+node --test tests/*.test.ts            # 463 个测试
 npm run evidence:loader                # 隔离 loader 加载/卸载证据
 ```
 
-Python 核心测试（Step 11 后共 340 个；Step 9 新增 22 个，Step 10 新增 48 个，
-Step 11 新增 50 个）：
+Step 18 的独立实例验收（不装进 `dsh-plugin/` 的依赖树，见 `step18/README.md`）：
+
+```bash
+python3 step18/run-e2e.py --dry-run    # 组合隔离 profile 并打印 --dump-config
+python3 step18/run-e2e.py              # 真实 Sidrune 合成会话 + 证据
+```
+
+Python 核心测试（Step 17 后共 641 个；Step 9 新增 22 个，Step 10 新增 48 个，
+Step 11 新增 50 个，Step 12 新增 51 个，Step 13 新增 30 个，Step 14 新增 42 个，
+Step 15 新增 54 个，Step 16 新增 66 个，Step 17 新增 58 个）：
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -837,6 +1062,13 @@ python3 -m aeh.eval_cli                 # 可运行的合成评测报告
 python3 -m aeh.eval_cli --json          # 机器可读
 python3 -m aeh.fsrs_calibration_cli     # Step 11：合成校准 + 候选门禁演示
 python3 -m aeh.fsrs_calibration_cli --json
+python3 -m unittest discover -s tests -p 'test_twin_step12*.py' -v  # Step 12
+python3 -m unittest discover -s tests -p 'test_memory_step12.py' -v
+python3 -m unittest discover -s tests -p 'test_hypothesis_step12.py' -v
+python3 -m unittest discover -s tests -p 'test_hypothesis_step13.py' -v  # Step 13
+python3 -m unittest discover -s tests -p 'test_diagnosis_step14.py' -v  # Step 14
+python3 -m unittest discover -s tests -p 'test_teaching_strategy.py' -v  # Step 15
+python3 -m unittest discover -s tests -p 'test_services_step16.py' -v  # Step 16
 ```
 
 Node 测试分层：
@@ -890,6 +1122,47 @@ Node 测试分层：
   可信来源与 unseen 迁移题 gating、门禁状态机/默认拒绝/禁止自批/非宿主拒绝/回滚、
   校准不改孪生/冻结配置、共享 fixture 全量 canonical 一致）。
 
+- `tests/twin-step12.test.ts`：24 个 Step 12 测试（append/version/checkpoint/rollback/
+  replay 与证据不变、模拟事件不得进入 observed/记忆/假设、多 KC 记忆复习与衰减不变量、
+  候选挂起/审批激活/回滚/拒绝、五种假设操作与版本绑定、共享 fixture checkpoint 一致）。
+
+- `tests/hypothesis-step13.test.ts`：30 个 Step 13 测试（生成触发与证据约束 generate、
+  行为似然匹配与 unexplained、相似度、可区分分裂与不可区分合并、弱/矛盾/无独特解释力
+  淘汰、unknown 原因与真实证据请求、Brier/log loss/ECE/一致率/anti-mismatch、状态与快照
+  往返、session/agent 隔离、TTL/结束会话、持久化 fail-closed、共享 fixture 一致）。
+
+- `tests/diagnosis-step14.test.ts`：31 个 Step 14 测试（稳定拓扑排序与非法步骤图拒绝、
+  首个偏离定位、误解/先修/slip 展开与降权、解释转假设、预测不确定度与 `zeta` 惩罚、
+  终止原因优先级、状态机 select/observe/skip/terminate 与非法转移、题数/时长/负担上限、
+  共享 fixture 的偏离/权重/分数/选中项/状态序列/终止原因/负担逐值一致）。
+
+- `tests/teaching-strategy-step15.test.ts`：54 个 Step 15 测试（fail-closed 策略路由、
+  诊断题/最小提示/示范/微课/定向练习/迁移/间隔复习/进度确认/直接回答、预习—学校—
+  AI 强化—复习的日常协同与动态时间分配、检索/间隔/交错学习科学计划、数学/物理学科
+  适配、共享 fixture 逐值一致）。
+
+- `tests/services-step16.test.ts`：64 个 Step 16 测试（事件 append/幂等重放/幂等冲突/乐观
+  并发/get·list·lookup、observed/simulated 域隔离与模拟事件拒绝、payload/schema 校验、
+  文件事件日志重开/篡改检测/异域记录拒绝、写入协调 runOnce 与异步扇出、Profile 版本化
+  更新与冲突、Bundle 内容寻址与持久化、内容库审核门禁/难度过滤/版本重放与陈旧写入、
+  冻结评测集的分片隔离/模拟不触迁移/可信来源/运行幂等与冲突、状态机正常转移/非法转移/
+  终态/幂等 advance/快照无内容/返工上限/12 条异常分支、共享 fixture 全量一致）。
+
+- `tests/privacy-step17.test.ts`：62 个 Step 17 测试（同意账本追加/重复/过期/未知
+  scope fail-closed、未成年人监护人 scope 与 `research:aggregate` 不可达、受众只收窄、
+  保留期闭区间到期与逐类删除请求、跨存储删除传播与 partial/failed、删除后读取拒绝、
+  审计过滤/去标识/摘要、指标注册与模拟来源隔离、小群体抑制、成本估算与
+  `billing_connected=False`、共享 fixture 逐值一致）。
+
+Step 18 的 `dsh-plugin/e2e/aeh-e2e-entry.ts` 也被 `tsconfig.json` 纳入
+`npm run typecheck`，但它只是隔离实例的合成宿主入口，不注册到插件包导出，也不会被
+`node --test tests/*.test.ts` 或运行中的 harness 加载。
+
+Python 侧新增 `tests/test_services_step16.py`（66 个）与共享
+`tests/fixtures/services_step16.json`：事件存储幂等/并发/域隔离/文件重开与篡改、写入
+协调、Profile/Bundle、内容库审核与版本、冻结评测集与防自证、23 状态转移/拒绝上限/
+异常分支，Python/TS 逐值一致。
+
 Python 侧新增 `tests/test_curriculum_graph.py`（22 个）：图闭包/拓扑序/环与非法图
 拒绝、proposed 边、版本存储与 diff、题库版本/审核/缺失标注、检索过滤、检索后门禁与
 前置闭包、未知 KC/缺失图、共享 fixture 一致性。
@@ -907,6 +1180,23 @@ Python 侧新增 `tests/test_fsrs_calibration.py`（50 个）：`mulberry32`/`ro
 可信来源与 unseen 迁移题 gating、门禁状态机/默认拒绝/禁止自批/非宿主拒绝/回滚、
 `MemoryState`/`StudentTwin` 隔离、共享 fixture 全量一致、CLI 冒烟。
 
+Python 侧新增 `tests/test_memory_step12.py`（13 个）、`tests/test_hypothesis_step12.py`
+（8 个）、`tests/test_twin_step12.py`（26 个）与 `tests/test_twin_step12_fixture.py`
+（2 个）：记忆参数/衰减/多 KC 聚合、假设 revision/绑定/剪枝/clone、孪生生命周期与
+隔离、校准审批门禁、五种假设演化、共享 fixture checkpoint 一致。
+
+Python 侧新增 `tests/test_hypothesis_step13.py`（30 个）与共享
+`tests/fixtures/hypothesis_step13.json`：生成触发与证据约束 generate、行为似然匹配与
+unexplained、相似度、可区分分裂与不可区分合并、弱/矛盾/无独特解释力淘汰、unknown
+原因与真实证据请求、Brier/log loss/ECE/一致率/anti-mismatch、状态与快照往返、
+session/agent 隔离、TTL/结束会话、持久化 fail-closed、Python/TS fixture 一致。
+
+Python 侧新增 `tests/test_diagnosis_step14.py`（42 个）与共享
+`tests/fixtures/diagnosis_step14.json`：稳定拓扑排序与非法步骤图、首个偏离、误解/
+先修/slip 展开与已做对上游降权、解释转假设、预测不确定度与 `zeta` 惩罚、终止原因
+优先级、状态机 select/observe/skip/terminate 与非法转移、题数/时长/负担上限、
+Python/TS fixture 一致。
+
 Python 侧新增 `tests/test_evaluation.py`（17 个）：冻结集摘要与分片隔离、迁移题
 unseen、模拟不能进迁移通道、真实迁移只接受可信来源、模拟数据不能重标为真实证据、
 报告分节与防自证声明、CLI 可运行。
@@ -918,7 +1208,11 @@ Python 侧新增 `tests/test_evolution.py`（35 个）：候选契约与受保�
 
 ## 11. 已知 TODO / 未实现
 
-- 尚未在生产 dsh 会话中挂载；本轮只在独立隔离的 Cordis/dsh 测试实例中验证。
+- 尚未在生产 dsh 会话中挂载；Step 4 的 loader/契约测试与 Step 18 的端到端验收都只在
+  独立隔离的 Cordis/dsh 实例中验证。Step 18 已用真实 Sidrune 模型跑通一次合成
+  “门禁—诊断—复习—报告”会话，但仍是单会话、单模型、合成数据，宿主绑定是代码级
+  入口（`dsh-plugin/e2e/aeh-e2e-entry.ts`），不是可序列化的生产配置；多租户、
+  配额/计费、审批后台、LMS 交付与崩溃恢复未做。
 - 生产鉴权/KMS/签名 attestation、跨服务租户隔离、生产级持久化未做；
   `MemoryHostTwin.verifyAttestation` 与 `FileEventStore` 的 checksum 是接缝/完整性
   校验，不是密码学来源证明。单机最小保留期与同意撤回删除传播已做（见 §9 Step 5），
@@ -932,6 +1226,12 @@ Python 侧新增 `tests/test_evolution.py`（35 个）：候选契约与受保�
   Python 参考实现。
 - 评测协议只提供冻结集隔离、模拟/真实分离与防自证约束；没有真实 RCT/对照组、
   延迟保持、跨知识迁移与不良效果测量，且本仓库只用合成数据。
+- Step 16 的服务与状态机仍是单机骨架：文件存储没有跨进程锁、加密、保留期或压缩；
+  Profile/Bundle 读取没有跨服务一致性快照；内容库没有真实版权/授权元数据与审核
+  工作流；TypeScript 评测服务是 `aeh/evaluation.py` 的最小镜像而非完整协议；状态机
+  没有接入真实 agent 编排、工具重试与检查点恢复，也未暴露为模型工具。Step 16 的
+  `FileEventStore` 与 Step 5 `src/host/file-event-store.ts` 同名但不同层，顶层
+  `index.ts` 仍导出后者，前者需从 `core/services.ts` 引入。
 - 自进化仍为骨架：候选来源检测器（漂移/回归/成本）与 PR/变更单生成、真实冻结
   评测服务、生产灰度/监控接入、跨服务防篡改审计与保留期都未实现；TypeScript 侧
   的 `IsolatedSandbox` 接收宿主评测摘要而非自己运行冻结集协议。
@@ -953,6 +1253,27 @@ Python 侧新增 `tests/test_evolution.py`（35 个）：候选契约与受保�
   注册表与热切换、真实 held-out 冻结集、真实审批后台与持久审计存储；`activation`
   只返回冻结配置对象并记录决策，从不写 `MemoryState`/`StudentTwin`，也不是真实效果
   声明。Step 11 只提供可测试的拟合/不确定性/候选边界，不宣称生产可用。
+- 长期孪生的 checkpoint / 校准审批 / 假设 binding 仍只在内存中：没有生产持久化、
+  跨进程并发控制、真实审批后台、参数注册表与热切换；pending 候选不占用推断版本
+  （只有激活/回滚占用）；Python/TypeScript 的 ISO 时间戳拼写不同，共享 fixture 不比较
+  时间字段。真实长期保持/遗忘数据与真实学习效果未验证。
+- 虚拟学生群的生成/匹配/分裂/合并/淘汰规则已完整（Step 13），但生成触发只由调用者
+  声明，没有真实的“新题型/冲突证据/步骤首次偏离”检测器；匹配用合成行为似然而不是
+  真实步骤级模型；保真度指标只跑合成观测，没有真实留出步骤/教师根因标签/人群校准；
+  `HypothesisSnapshotStore` 是内存 session store，没有跨进程持久化与生产访问控制；
+  规则层尚未暴露为 `aeh_update_hypotheses` 的新操作（工具输出 schema 需先迁移版本）。
+- 主动诊断/反向溯源仍是合成骨架（Step 14）：错误规则图、误解与先修关系由调用方提供
+  合成标注，没有真实步骤解析器/符号推理器、真实教师根因标签或真实步骤级认知模型；
+  `slip_likelihood` 与深度/矛盾衰减是策略先验而非校准参数；诊断题预测仍是合成概率；
+  状态机是内存会话，没有跨进程持久化与 dsh session 服务注入；反向溯源、状态机与负担
+  上限尚未暴露为模型工具（仍是六个工具）。
+- 教学策略/日常协同仍是合成骨架（Step 15）：学校日程、考试范围、任务意图、先修缺口
+  与错误信号由调用方以合成标注传入，没有真实校历、LMS/作业系统、教师确认流程或课堂
+  同步资料；策略效果没有真实对照/延迟保持验证；预习与考试范围只做“已确认才解锁”的
+  门禁，不推断学校进度。跨学科只交付数学与物理两个示例，化学/编程/语言/专科实践课
+  适配器、真实学科验证服务与高风险实验的专业监管未实现；16 种学习科学方法中只有
+  检索、间隔、交错有可执行计划，其余 13 种是映射声明。策略路由、日常计划、学习科学
+  计划与学科适配尚未暴露为模型工具（仍是六个工具）。
 - FSRS 参数为示意值，不是生产校准参数。
 - `Config` 已在 Step 7 改为 Schemastery 校验并导出为 Cordis `Config`；残留真实配置
   中心的变更审批/回滚与热重载审计。
