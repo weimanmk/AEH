@@ -159,6 +159,9 @@ export function allow(
   if (item.contentVerified !== true) {
     reasons.push('content_not_verified')
   }
+  if (item.annotationsComplete === false) {
+    reasons.push('incomplete_annotations')
+  }
 
   const rawConfidence = item.annotationConfidence
   if (rawConfidence === null || rawConfidence === undefined) {

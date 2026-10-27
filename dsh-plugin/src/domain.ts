@@ -41,6 +41,12 @@ export interface CurriculumItem {
   readonly extensionApproved?: boolean
   readonly role?: 'training' | 'transfer' | 'explanation' | 'diagnostic'
   readonly seenBefore?: boolean
+  /**
+   * Step 9 item-bank path. `undefined` is the legacy/manual default; the item
+   * bank sets this explicitly to `false` when any required annotation is
+   * missing, so an incomplete catalog record cannot pass the gate.
+   */
+  readonly annotationsComplete?: boolean
 }
 
 /** The three progress axes kept separate (spec section 4.1). */
