@@ -1,0 +1,68 @@
+{
+  "description": "Synthetic Step 12 parity fixture for aeh/twin.py <-> dsh-plugin/src/core/twin.ts. No real student data.",
+  "studentRef": "stu.fixture",
+  "clock": "2026-03-01T12:00:00Z",
+  "events": [
+    { "eventId": "ev_1", "eventType": "attempt", "source": "student", "occurredAt": "2026-01-01T12:00:00Z" },
+    { "eventId": "ev_2", "eventType": "attempt", "source": "student", "occurredAt": "2026-01-02T12:00:00Z" }
+  ],
+  "mastery": [
+    { "kcId": "kc.a", "masteryMean": 0.4, "uncertainty": 0.2, "evidenceIds": ["ev_1"] },
+    { "kcId": "kc.b", "masteryMean": 0.7, "uncertainty": 0.1, "evidenceIds": ["ev_2"] }
+  ],
+  "memoryReviews": [
+    { "kcId": "kc.a", "observationId": "o1", "success": true, "independent": true, "hintLevel": 0, "kind": "attempt", "occurredAt": "2026-01-01T12:00:00Z", "evidenceIds": ["ev_1"] },
+    { "kcId": "kc.a", "observationId": "o2", "success": true, "independent": true, "hintLevel": 0, "kind": "attempt", "occurredAt": "2026-01-02T12:00:00Z", "evidenceIds": ["ev_2"] },
+    { "kcId": "kc.b", "observationId": "o3", "success": false, "independent": true, "hintLevel": 0, "kind": "attempt", "occurredAt": "2026-01-02T12:00:00Z", "evidenceIds": ["ev_2"] }
+  ],
+  "decayAt": "2026-03-01T12:00:00Z",
+  "calibration": {
+    "candidateId": "cal.fixture",
+    "approvalId": "ap.fixture",
+    "approvedBy": "teacher",
+    "parameters": {
+      "initial_stability_days": 2.0,
+      "success_growth": 0.8,
+      "failure_shrink": 0.3,
+      "initial_difficulty": 4.0,
+      "difficulty_success_delta": 0.1,
+      "difficulty_failure_delta": 0.6,
+      "parameter_version": "fsrs_calibrated_fixture_v1"
+    }
+  },
+  "postCalibrationReview": {
+    "kcId": "kc.c",
+    "observationId": "o4",
+    "success": true,
+    "independent": true,
+    "hintLevel": 0,
+    "kind": "attempt",
+    "occurredAt": "2026-02-01T12:00:00Z",
+    "evidenceIds": ["ev_1"]
+  },
+  "hypotheses": [
+    { "hypothesisId": "h1", "weight": 1.0 },
+    { "hypothesisId": "h2", "weight": 1.0 }
+  ],
+  "bindEvidenceIds": ["ev_1", "ev_2"],
+  "reweight": { "likelihoods": { "h1": 0.9, "h2": 0.1 }, "evidenceIds": ["ev_2"] },
+  "checkpointLabel": "fixture",
+  "expected": {
+    "version": 10,
+    "evidenceRevision": 2,
+    "activeParameterVersion": "fsrs_calibrated_fixture_v1",
+    "hypothesisRevision": 3,
+    "hypothesisBoundVersion": 10,
+    "observedEvidenceIds": ["ev_1", "ev_2"],
+    "hypothesisWeights": { "h1": 0.838095, "h2": 0.114286, "unknown": 0.047619 },
+    "knowledge": [
+      { "kcId": "kc.a", "masteryMean": 0.4, "uncertainty": 0.2, "evidenceIds": ["ev_1"], "exposureState": "observed" },
+      { "kcId": "kc.b", "masteryMean": 0.7, "uncertainty": 0.1, "evidenceIds": ["ev_2"], "exposureState": "observed" }
+    ],
+    "memory": [
+      { "memoryUnitId": "kc.a", "stabilityDays": 2.56, "difficulty": 4.6, "observationCount": 2, "independentSuccessCount": 2, "uncertainty": "high", "modelVersion": "fsrs_illustrative_19_81", "needsCalibration": true },
+      { "memoryUnitId": "kc.b", "stabilityDays": 0.6, "difficulty": 5.5, "observationCount": 1, "independentSuccessCount": 0, "uncertainty": "high", "modelVersion": "fsrs_illustrative_19_81", "needsCalibration": true },
+      { "memoryUnitId": "kc.c", "stabilityDays": 3.6, "difficulty": 3.9, "observationCount": 1, "independentSuccessCount": 1, "uncertainty": "high", "modelVersion": "fsrs_calibrated_fixture_v1", "needsCalibration": false }
+    ]
+  }
+}

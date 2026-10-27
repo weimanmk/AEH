@@ -1,0 +1,151 @@
+{
+  "meta": {
+    "step": 16,
+    "synthetic": true,
+    "note": "Synthetic Python/TypeScript shared fixture for service boundaries and the harness state machine. No real student data."
+  },
+  "eventStore": {
+    "domain": "observed",
+    "streamId": "student.demo.1",
+    "appends": [
+      {
+        "eventType": "INDEPENDENT_ATTEMPT",
+        "sourceType": "observed",
+        "occurredAt": "2026-10-26T20:15:00+08:00",
+        "idempotencyKey": "attempt-1",
+        "sessionId": "sess-1",
+        "payload": {"item_id": "item_385", "hint_level": 0},
+        "expectedVersion": 0
+      },
+      {
+        "eventType": "INDEPENDENT_ATTEMPT",
+        "sourceType": "observed",
+        "occurredAt": "2026-10-26T20:15:00+08:00",
+        "idempotencyKey": "attempt-1",
+        "sessionId": "sess-1",
+        "payload": {"item_id": "item_385", "hint_level": 0},
+        "expectedVersion": 0
+      },
+      {
+        "eventType": "REVIEW_COMPLETED",
+        "sourceType": "observed",
+        "occurredAt": "2026-10-27T08:00:00+08:00",
+        "idempotencyKey": "review-1",
+        "payload": {"item_id": "item_401", "independent": true},
+        "expectedVersion": 1
+      }
+    ],
+    "expectedVersion": 2,
+    "expectedDeduplicated": [false, true, false],
+    "expectedSequences": [1, 1, 2],
+    "idempotencyConflict": {
+      "idempotencyKey": "attempt-1",
+      "payload": {"item_id": "item_other"},
+      "expectedError": "IdempotencyConflictError"
+    },
+    "staleExpectedVersion": 0,
+    "staleError": "OptimisticConcurrencyError"
+  },
+  "profile": {
+    "studentRef": "student.demo.1",
+    "stage": "senior_secondary",
+    "guardianConsent": true,
+    "settings": {"locale": "zh-CN", "preferred_session_minutes": 20},
+    "expectedCreateVersion": 1,
+    "patch": {"preferred_session_minutes": 25},
+    "expectedUpdatedVersion": 2,
+    "staleExpectedVersion": 1,
+    "staleError": "OptimisticConcurrencyError"
+  },
+  "bundle": {
+    "studentRef": "student.demo.1",
+    "twinVersion": 54,
+    "schoolProgressVersion": 15,
+    "contentVersion": 7,
+    "createdAt": "2026-10-27T09:00:00+08:00"
+  },
+  "content": {
+    "records": [
+      {"contentId": "item_385", "kcIds": ["algebra.square_compensation"], "difficulty": 3, "reviewState": "approved"},
+      {"contentId": "item_386", "kcIds": ["algebra.square_compensation"], "difficulty": 2, "reviewState": "draft"},
+      {"contentId": "item_387", "kcIds": ["algebra.square_compensation", "algebra.quadratic_max"], "difficulty": 4, "reviewState": "approved"},
+      {"contentId": "item_388", "kcIds": ["geometry.circle"], "difficulty": 2, "reviewState": "approved"}
+    ],
+    "retrieveKc": "algebra.square_compensation",
+    "retrieveExpectedIds": ["item_385", "item_387"],
+    "retrieveDifficulty": null,
+    "versionBump": {"contentId": "item_386", "reviewState": "approved", "expectedVersionAfter": 2}
+  },
+  "evaluation": {
+    "datasetId": "eval_step16_demo",
+    "version": "v1",
+    "frozenAt": "2026-10-27T00:00:00+00:00",
+    "items": [
+      {"itemId": "train_1", "kcId": "algebra.square_compensation", "split": "train", "difficulty": 2},
+      {"itemId": "explain_1", "kcId": "algebra.square_compensation", "split": "explanation", "difficulty": 2},
+      {"itemId": "transfer_1", "kcId": "algebra.square_compensation", "split": "transfer", "difficulty": 3, "seenBefore": false}
+    ],
+    "simulated": [
+      {"itemId": "train_1", "predictedCorrect": 0.7},
+      {"itemId": "explain_1", "predictedCorrect": 0.5}
+    ],
+    "real": [
+      {"itemId": "transfer_1", "correct": true, "source": "trusted_grader", "occurredAt": "2026-10-27T10:00:00+00:00", "independent": true}
+    ],
+    "idempotencyKey": "evalrun-1",
+    "expectedSimulatedMean": 0.6,
+    "expectedSimulatedGain": 0.1,
+    "expectedRealAccuracy": 1.0,
+    "expectedRealSources": ["trusted_grader"],
+    "expectedClaimContains": "control group",
+    "simulatedOnTransferItemId": "transfer_1",
+    "expectedIsolationError": "SplitIsolationError"
+  },
+  "stateMachine": {
+    "studentRef": "student.demo.1",
+    "script": [
+      "EvidenceParse", "ProgressCheck", "NeedClarification", "ProgressCheck",
+      "StateLoad", "Diagnose", "HypothesisUpdate", "ExerciseEvolution",
+      "SimulationLab", "CandidateRanking", "CurriculumGate", "ContentValidation",
+      "Deliver", "AwaitStudent", "Assess", "StateCommit", "ReviewReschedule",
+      "Completed"
+    ],
+    "expectedFinalState": "Completed",
+    "expectedTransitions": 18,
+    "probeScript": [
+      "EvidenceParse", "ProgressCheck", "StateLoad", "Diagnose",
+      "HypothesisUpdate", "Probe", "AwaitStudent", "EvidenceParse",
+      "ProgressCheck", "StateLoad", "RecallSchedule", "ExerciseEvolution",
+      "SimulationLab", "CandidateRanking", "CurriculumGate", "ExerciseEvolution",
+      "SimulationLab", "CandidateRanking", "CurriculumGate", "ContentValidation",
+      "Deliver", "AwaitStudent", "Assess", "StateCommit", "ReviewReschedule",
+      "Completed"
+    ],
+    "expectedProbeFinalState": "Completed",
+    "expectedProbeRejections": 1,
+    "rejectionScript": {
+      "maxRejections": 3,
+      "expectedRejections": 4,
+      "expectedAfterLimit": "Failed"
+    },
+    "exceptions": {
+      "ocr_uncertain": "NeedClarification",
+      "symbol_verifier_uncertain": "NeedClarification",
+      "rag_source_missing": "",
+      "school_progress_unclear": "NeedClarification",
+      "hypotheses_all_mismatched": "Probe",
+      "simulation_timeout": "CandidateRanking",
+      "sparse_memory_data": "RecallSchedule",
+      "low_confidence_strategy": "",
+      "student_refuses_diagnosis": "Aborted",
+      "abnormal_pressure": ""
+    },
+    "illegal": {"from": "Intake", "to": "Deliver"},
+    "terminalHasNoNext": "Completed"
+  },
+  "writeCoordinator": {
+    "streamId": "student.demo.1",
+    "idempotencyKey": "coord-1",
+    "expectedRunOnce": 1
+  }
+}

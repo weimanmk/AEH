@@ -1,0 +1,257 @@
+{
+  "scenario": "synthetic.completing_square.step14",
+  "note": "All content is synthetic; no real student data.",
+  "trace": {
+    "rules": [
+      {
+        "ruleId": "rule.expand_square",
+        "kc": "kc.square_formula",
+        "requiresRules": [],
+        "misconceptionIds": [
+          "mc.square_formula_error"
+        ],
+        "slipLikelihood": 0.1,
+        "description": "expand (x-a)^2"
+      },
+      {
+        "ruleId": "rule.complete_square",
+        "kc": "kc.completing_square",
+        "requiresRules": [
+          "rule.expand_square"
+        ],
+        "misconceptionIds": [
+          "mc.no_compensation"
+        ],
+        "slipLikelihood": 0.2,
+        "description": "complete the square"
+      }
+    ],
+    "misconceptions": [
+      {
+        "misconceptionId": "mc.no_compensation",
+        "kc": "kc.completing_square",
+        "requiresKcs": [
+          "kc.identity_preservation"
+        ],
+        "basePrior": 0.9,
+        "description": "drops the constant compensation"
+      },
+      {
+        "misconceptionId": "mc.square_formula_error",
+        "kc": "kc.square_formula",
+        "requiresKcs": [],
+        "basePrior": 0.5,
+        "description": "wrong (a-b)^2 expansion"
+      }
+    ],
+    "steps": [
+      {
+        "stepId": "s1",
+        "ruleId": "rule.expand_square",
+        "kc": "kc.square_formula",
+        "correct": true,
+        "dependsOn": []
+      },
+      {
+        "stepId": "s2",
+        "ruleId": "rule.complete_square",
+        "kc": "kc.completing_square",
+        "correct": false,
+        "dependsOn": [
+          "s1"
+        ],
+        "errorType": "rule_misapplication"
+      }
+    ],
+    "policy": {
+      "maxDepth": 3,
+      "slipThreshold": 0.6,
+      "slipBoost": 0.35,
+      "contradictionDecay": 0.25,
+      "depthDecay": 0.6,
+      "unknownPrior": 0.05
+    },
+    "expected": {
+      "firstDeviationStepId": "s2",
+      "firstDeviationKc": "kc.completing_square",
+      "isolatedError": true,
+      "notes": [
+        "isolated_error"
+      ],
+      "explanationIds": [
+        "misconception:mc.no_compensation",
+        "slip",
+        "prereq:kc.identity_preservation",
+        "prereq:kc.square_formula"
+      ],
+      "weights": {
+        "misconception:mc.no_compensation": 0.4675324675324675,
+        "prereq:kc.square_formula": 0.06493506493506493,
+        "prereq:kc.identity_preservation": 0.15584415584415584,
+        "slip": 0.28571428571428575,
+        "unknown": 0.025974025974025976
+      },
+      "dominantId": "misconception:mc.no_compensation"
+    }
+  },
+  "probes": {
+    "weights": {
+      "misconception:mc.no_compensation": 0.4675324675324675,
+      "prereq:kc.square_formula": 0.06493506493506493,
+      "prereq:kc.identity_preservation": 0.15584415584415584,
+      "slip": 0.28571428571428575,
+      "unknown": 0.025974025974025976
+    },
+    "policy": {
+      "alpha": 0.2,
+      "beta": 0.1,
+      "gamma": 0.5,
+      "delta": 0.1,
+      "zeta": 0.1
+    },
+    "candidates": [
+      {
+        "itemId": "probe.expand",
+        "predictions": {
+          "misconception:mc.no_compensation": 0.3,
+          "prereq:kc.identity_preservation": 0.5,
+          "prereq:kc.square_formula": 0.9,
+          "slip": 0.6,
+          "unknown": 0.5
+        },
+        "timeMinutes": 2.0,
+        "risk": 0.1,
+        "cognitiveLoad": 0.2,
+        "teachingValue": 0.3,
+        "gateAllowed": true
+      },
+      {
+        "itemId": "probe.compare",
+        "predictions": {
+          "misconception:mc.no_compensation": 0.9,
+          "prereq:kc.identity_preservation": 0.7,
+          "prereq:kc.square_formula": 0.4,
+          "slip": 0.2,
+          "unknown": 0.5
+        },
+        "timeMinutes": 1.5,
+        "risk": 0.15,
+        "cognitiveLoad": 0.15,
+        "teachingValue": 0.2,
+        "gateAllowed": true
+      },
+      {
+        "itemId": "probe.recook",
+        "predictions": {
+          "misconception:mc.no_compensation": 0.4,
+          "prereq:kc.identity_preservation": 0.5,
+          "prereq:kc.square_formula": 0.5,
+          "slip": 0.3,
+          "unknown": 0.5
+        },
+        "timeMinutes": 3.0,
+        "risk": 0.2,
+        "cognitiveLoad": 0.4,
+        "teachingValue": 0.5,
+        "gateAllowed": true
+      },
+      {
+        "itemId": "probe.future",
+        "predictions": {
+          "misconception:mc.no_compensation": 1.0,
+          "prereq:kc.identity_preservation": 0.0,
+          "prereq:kc.square_formula": 0.0,
+          "slip": 0.0,
+          "unknown": 0.0
+        },
+        "timeMinutes": 0.5,
+        "risk": 0.0,
+        "cognitiveLoad": 0.0,
+        "teachingValue": 0.0,
+        "gateAllowed": false
+      }
+    ],
+    "expected": {
+      "informationGain": {
+        "probe.expand": 0.0938966372979193,
+        "probe.compare": 0.3018106191199199,
+        "probe.recook": 0.01612427192042354
+      },
+      "answerUncertainty": {
+        "probe.expand": 0.9956156427297899,
+        "probe.compare": 0.9537132583378125,
+        "probe.recook": 0.9686258457313756
+      },
+      "score": {
+        "probe.expand": -0.2156649269750597,
+        "probe.compare": 0.006439293286138667,
+        "probe.recook": -0.4207383126527141
+      },
+      "rejectedIds": [
+        "probe.future"
+      ],
+      "selectedId": "probe.compare",
+      "selectedScore": 0.006439293286138667
+    }
+  },
+  "session": {
+    "weights": {
+      "misconception:mc.no_compensation": 0.4675324675324675,
+      "prereq:kc.square_formula": 0.06493506493506493,
+      "prereq:kc.identity_preservation": 0.15584415584415584,
+      "slip": 0.28571428571428575,
+      "unknown": 0.025974025974025976
+    },
+    "policy": {
+      "alpha": 0.2,
+      "beta": 0.1,
+      "gamma": 0.5,
+      "delta": 0.1,
+      "zeta": 0.1
+    },
+    "budget": {
+      "maxQuestions": 2,
+      "maxTotalMinutes": null,
+      "maxTotalLoad": null
+    },
+    "minConfidence": null,
+    "entropyThreshold": null,
+    "script": [
+      {
+        "itemId": "probe.compare",
+        "correct": true
+      },
+      {
+        "itemId": "probe.compare",
+        "correct": false
+      }
+    ],
+    "expected": {
+      "states": [
+        "awaiting_answer",
+        "updated",
+        "awaiting_answer",
+        "terminated"
+      ],
+      "asked": [
+        "probe.compare",
+        "probe.compare"
+      ],
+      "terminationReason": "max_questions",
+      "burden": {
+        "questions": 2,
+        "totalMinutes": 3.0,
+        "totalLoad": 0.3
+      },
+      "finalWeights": {
+        "misconception:mc.no_compensation": 0.29508196721311464,
+        "prereq:kc.square_formula": 0.10928961748633878,
+        "prereq:kc.identity_preservation": 0.22950819672131148,
+        "slip": 0.3205828779599272,
+        "unknown": 0.04553734061930784
+      },
+      "realizedInformationGain": 0.3939002724103242
+    }
+  },
+  "entropy": 1.8401113959541942
+}
