@@ -29,6 +29,10 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
 
+      # Offline synthetic evaluation; standard library only, no external service.
+      - name: Run offline evaluation smoke check
+        run: python -m aeh.eval_cli --json > /dev/null
+
   plugin:
     name: dsh plugin (Node 24)
     runs-on: ubuntu-latest
