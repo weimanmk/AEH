@@ -1,4 +1,4 @@
-# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9 + Step 10）
+# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9 + Step 10 + Step 11）
 
 状态：**已用真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` 替换离线适配层，
 并在一个独立隔离的 Cordis loader 实例中完成加载/卸载与工具契约测试**。Step 5 在
@@ -89,6 +89,7 @@ dsh-plugin/
       curriculum-gate.ts    # 对应 aeh/curriculum_gate.py
       curriculum-graph.ts   # Step 9：对应 aeh/curriculum_graph.py（图/题库/本地 RAG）
       exercise-evolution.ts # Step 10：对应 aeh/exercise_evolution.py（演化 + 模拟实验室）
+      fsrs-calibration.ts   # Step 11：对应 aeh/fsrs_calibration.py（FSRS 校准，仅候选）
       twin.ts               # 对应 aeh/twin.py（宿主侧，不暴露写工具）
       memory.ts             # 对应 aeh/memory.py
       hypothesis.ts         # 对应 aeh/hypothesis.py
@@ -105,6 +106,7 @@ dsh-plugin/
     security.test.ts        # Step 8：19 个注入/越权/payload/限流/脱敏测试
     curriculum-graph.test.ts # Step 9：19 个图/题库/RAG/检索后门禁测试
     exercise-evolution.test.ts # Step 10：21 个演化/模拟/隔离/共享 fixture 测试
+    fsrs-calibration.test.ts   # Step 11：46 个校准/不确定性/候选门禁/共享 fixture 测试
 ```
 
 `src/dsh.ts` 现在直接导入真实 `@deepseek-ai/cordis` 与
@@ -330,6 +332,45 @@ Python `aeh/exercise_evolution.py` 与 TypeScript `core/exercise-evolution.ts` �
   作答的 unseen 迁移题，结果仍为描述性（`causalClaimSupported=false`）。
 - **边界**：没有新增模型可调用工具；模型不能直接触发生成器、沙箱或候选池。插件工具
   目录仍是六个。
+
+### 3.10 FSRS 参数校准（Step 11）
+
+Python `aeh/fsrs_calibration.py` 与 TypeScript `core/fsrs-calibration.ts` 是同一行为的
+双实现，共享 `tests/fixtures/fsrs_calibration_step11.json` 的合成 fixture。校准**只**
+产出参数候选，不写任何真实掌握度：
+
+- **确定性拟合**：沿用规范 §8.3 的示意曲线 `R = (1 + 19/81 · t / S_eff)^(-1/2)`，
+  其中 `S_eff = max(0.4, S · (10-D)/5)`；待拟合向量固定为
+  `initial_stability_days / success_growth / failure_shrink / initial_difficulty /
+  difficulty_success_delta / difficulty_failure_delta`。优化器是从四个确定性起点出发的
+  坐标下降（best-of multi-start），目标为 Brier 分数 + 向规范先验的 ridge 收缩。
+  拟合路径只用 `+ - * / sqrt`，避免 `pow`/libm 跨语言舍入差异。
+- **不确定性与适用性**：`CalibrationConfig`（seed/dataVersion/parameterVersion + rounds、
+  stepFraction、bootstrapResamples、ridge、confidence、阈值）与数据摘要都做 canonical
+  JSON 内容寻址；bootstrap 复用共享 `mulberry32`，输出每个参数的 95% 区间、
+  `identified()`（区间宽度 ≤ 半量程）与 Brier 的区间，另有 ECE、log loss、10 个可靠性
+  分箱。`Applicability` 明确 scope、观测数、elapsed-day 范围、独立/提示观测计数、
+  `evidenceSufficient` 与 out-of-scope 清单。点数落在 bootstrap 区间内；弱辨识参数被
+  如实列出而非隐藏。
+- **候选边界**：`CalibrationService.calibrate()` 返回不可变 `CalibrationReport`；
+  `propose_candidate()` 只生成声明式 `Candidate`（`kind="config"`、
+  `source="human_request"`、影响面 `review_scheduling`/`simulation_parameters`、
+  基线版本 `fsrs_illustrative_19_81`、`changes.parameters` 为量化参数）。
+  `PRODUCTION_MUTATION_ENABLED=False`、`SYNTHETIC_FIXTURES_ONLY=True`。
+- **隔离评测 + 显式批准 + 激活**：`CalibrationActivationGate` 的状态机为
+  `registered → evaluated/rejected → approved → activated → rolled_back`。
+  `evaluate_candidate()` 在**不相交**的合成 held-out 集上计算候选相对示意基线的 Brier
+  改善，模拟收益恒为 `isCausalEvidence=false`；真实迁移通道单独报告，只接受可信来源
+  （`student`/`teacher`/`trusted_grader`/`assessment`）且未见过的题项。没有真实迁移证据
+  时 `promotion_blocked:real_transfer_evidence_missing`，`promotionReady` 永远为 false。
+  `activate()` 需要隔离评测通过**且**显式宿主审批（默认拒绝、禁止自批、要求宿主角色）；
+  激活只返回冻结的参数配置对象，**不**写 `MemoryState` 或 `StudentTwin`。真实收益是
+  独立声明，不能由模拟收益自证。
+- **跨语言一致**：两侧共享 `mulberry32`、`round4`、`quantizeMicros`、`contentHash`/
+  `canonicalJson`；在共享 fixture 上 `datasetDigest`、`configFingerprint`、
+  `reportFingerprint`、参数、估计区间、metrics、适用性逐字节一致。
+- **边界**：没有新增模型可调用工具；模型不能触发校准、批准或激活。插件工具目录仍是
+  六个。`references/awesome-fsrs` 只作机制参考，未整体复制其代码。
 
 ## 4. Cordis 插件结构
 
@@ -712,6 +753,23 @@ Step 8 的 TypeScript 测试为 `tests/security.test.ts`（19），步骤完成�
 | 模拟收益与真实迁移分开报告，模拟不能自证真实效果 | **已完成** | `simulatedBenefit.is_causal_evidence=false`；真实迁移只来自冻结 unseen 迁移集与可信来源，且 `causalClaimSupported=false`、`promotionReady` 需真实迁移证据。TS 侧内联实现真实通道（无 TS 评测模块）。**残留**：真实对照/延迟保持迁移实验与真实学生行为校准 |
 | Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 290 通过（新增 48）；Node 152 通过（新增 21）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
 
+### Step 11 完成情况（FSRS 参数校准，规范 §8）
+
+状态图例同上：**已完成** = 在本目录合成数据/隔离实例上实现并有测试；**部分** = 最小
+模型完成，生产项未完成。Step 11 不新增模型工具（仍是六个），不改运行用 dsh，不接入
+真实学生数据；校准只产生参数候选，激活只返回冻结配置对象，**绝不**写掌握度或孪生。
+
+| Step 11 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 从合成作答序列拟合 FSRS 参数（stability/difficulty/retrievability） | **已完成（合成数据）** | `aeh/fsrs_calibration.py` 与 `src/core/fsrs-calibration.ts`：示意曲线 `R=(1+19/81·t/S_eff)^(-1/2)`，`S_eff=max(0.4,S·(10-D)/5)`；拟合 6 维动力学向量，含先验/边界/ridge 收缩。**残留**：真实版本/人群数据、真实遗忘曲线与优化器替换、生产参数注册表 |
+| 可复现（seed、数据版本、参数版本、配置指纹） | **已完成** | `CalibrationConfig.as_dict()/fingerprint()`、`CalibrationDataset.digest()`、`CalibrationReport.fingerprint()` 全部 canonical JSON 内容寻址；相同 seed/配置/数据得到相同指纹，改 seed 只改 bootstrap 区间不改点估计。**残留**：跨机器/跨版本可复现性声明与数据集快照托管 |
+| 结果带不确定性 + 适用性声明 | **已完成** | bootstrap（共享 `mulberry32`）给出每个参数的 `ciLow/ciHigh` 与 `identified()`，Brier 区间、ECE、log loss、10 个可靠性分箱；`Applicability` 声明 scope/观测数/elapsed 范围/独立与提示观测/`evidenceSufficient`/out-of-scope。**残留**：真实保留期/人群漂移监控与重校准触发 |
+| 校准不直接改真实掌握度，只产参数候选 | **已完成** | `CalibrationService.propose_candidate()` 只生成声明式 `Candidate`（`kind="config"`、基线 `fsrs_illustrative_19_81`、`changes.parameters`）；`PRODUCTION_MUTATION_ENABLED=False`。**残留**：生产配置中心写入适配器（当前仅内存冻结对象） |
+| 先隔离评测 + 显式批准才生效 | **已完成** | `CalibrationActivationGate`：不相交合成 held-out 评测 → 通过才可 `evaluate`；`approve` 默认拒绝、禁止自批、要求宿主角色；`activate` 需已批准，返回冻结配置；`rollback` 回到上一稳定版本。**残留**：真实 held-out 冻结集、真实审批后台与持久审计存储 |
+| 模拟收益与真实迁移分开报告 | **已完成** | `simulatedBenefit.isCausalEvidence=false`；真实迁移通道只接受可信来源与 unseen 题项；无真实证据时 `promotion_blocked:real_transfer_evidence_missing`，`promotionReady=false`；`CalibrationEvaluation` 构造期即禁止把模拟/真实标成因果。**残留**：真实对照/延迟保持迁移实验与真实学生行为校准 |
+| Python/TS 双实现行为一致，共享 fixture 数值一致 | **已完成** | 共享 `tests/fixtures/fsrs_calibration_step11.json`：`datasetDigest`/`configFingerprint`/`reportFingerprint`/参数/估计/`metrics`/`applicability` 逐字节一致；拟合路径只用 `+ - * / sqrt`。**残留**：无 |
+| Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 340 通过（新增 50）；Node 198 通过（新增 46）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
+
 ### P1：上线前应补齐
 
 1. **配置 schema**：**Step 7 已完成**（`src/config.ts` + 入口导出的 Cordis `Config`；
@@ -730,8 +788,12 @@ Step 8 的 TypeScript 测试为 `tests/security.test.ts`（19），步骤完成�
    泄露审查；保持无网络/无任意文件。**Step 8 已完成**（`src/security.ts` +
    `tools.ts` 包装 + `config.ts` 的 `security` 块）。残留：跨进程/分布式限流、
    对抗性注入的持续红队、真实身份/同意网关。
-6. **FSRS 校准**：当前参数是规范 §8.3 的示意值；生产应按实际版本、优化器和
-   人群校准，并保留模型版本与不确定性。
+6. **FSRS 校准**：**Step 11 已完成最小实现**（`aeh/fsrs_calibration.py` +
+   `src/core/fsrs-calibration.ts`：确定性拟合、bootstrap 不确定性与适用性声明、参数
+   候选、隔离评测 + 显式批准 + 激活/回滚状态机；`python -m aeh.fsrs_calibration_cli`）。
+   参数目前仍是合成数据上的候选，激活只返回冻结配置对象，**不**写掌握度。残留：
+   真实版本/人群校准、生产参数注册表与热切换、真实 held-out 冻结集、真实审批后台。
+
 7. **报告插件**：Step 5 已完成最小实现（`src/report.ts` + `aeh_generate_report`）。
    残留：真实身份/同意网关、报告受众的法定流程、跨服务审计。
 8. **CI**：已在 `.github/workflows/ci.yml` 的 Node 24 job 中加入
@@ -762,16 +824,19 @@ Step 8 的 TypeScript 测试为 `tests/security.test.ts`（19），步骤完成�
 cd dsh-plugin
 npm install --cache .npm-cache
 npm run typecheck                      # tsc --noEmit
-node --test tests/*.test.ts            # 152 个测试
+node --test tests/*.test.ts            # 198 个测试
 npm run evidence:loader                # 隔离 loader 加载/卸载证据
 ```
 
-Python 核心测试（Step 10 后共 290 个；Step 9 新增 22 个，Step 10 新增 48 个）：
+Python 核心测试（Step 11 后共 340 个；Step 9 新增 22 个，Step 10 新增 48 个，
+Step 11 新增 50 个）：
 
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m aeh.eval_cli                 # 可运行的合成评测报告
 python3 -m aeh.eval_cli --json          # 机器可读
+python3 -m aeh.fsrs_calibration_cli     # Step 11：合成校准 + 候选门禁演示
+python3 -m aeh.fsrs_calibration_cli --json
 ```
 
 Node 测试分层：
@@ -818,6 +883,13 @@ Node 测试分层：
   假设快照隔离、相同 seed 复现与不同 seed 区分、非法阶段/uint32 seed 拒绝、共享 fixture
   的候选哈希与模拟指纹逐字节一致）。
 
+- `tests/fsrs-calibration.test.ts`：46 个 Step 11 测试（`mulberry32`/`round4`/微单位/
+  百分位原语、示意曲线与 difficulty 调制、成功增长/失败收缩/零权不更新与边界、参数与
+  数据与配置校验、报告指纹复现与 seed 只改区间、bootstrap 区间上界、10 个可靠性分箱、
+  适用性与证据充分性、生成器确定性、候选声明式/无生产变更/参数回环、模拟与真实分通道、
+  可信来源与 unseen 迁移题 gating、门禁状态机/默认拒绝/禁止自批/非宿主拒绝/回滚、
+  校准不改孪生/冻结配置、共享 fixture 全量 canonical 一致）。
+
 Python 侧新增 `tests/test_curriculum_graph.py`（22 个）：图闭包/拓扑序/环与非法图
 拒绝、proposed 边、版本存储与 diff、题库版本/审核/缺失标注、检索过滤、检索后门禁与
 前置闭包、未知 KC/缺失图、共享 fixture 一致性。
@@ -827,6 +899,13 @@ Python 侧新增 `tests/test_exercise_evolution.py`（48 个）：RNG/FNV/舍入
 分通道与真实迁移 gating、候选池准入必须“沙箱合格 + 题库审核通过”、模拟事件来源
 白名单与 `observedWrites==0`、独立假设快照、配置与结果指纹复现/区分、非法配置拒绝、
 共享 fixture 一致性。
+
+Python 侧新增 `tests/test_fsrs_calibration.py`（50 个）：`mulberry32`/`round4`/微单位/
+百分位原语、示意曲线与 difficulty 调制、成功增长/失败收缩/零权不更新与边界、参数与
+数据与配置校验、报告指纹复现与 seed 只改区间、bootstrap 区间上界、10 个可靠性分箱、
+适用性与证据充分性、生成器确定性、候选声明式/无生产变更/参数回环、模拟与真实分通道、
+可信来源与 unseen 迁移题 gating、门禁状态机/默认拒绝/禁止自批/非宿主拒绝/回滚、
+`MemoryState`/`StudentTwin` 隔离、共享 fixture 全量一致、CLI 冒烟。
 
 Python 侧新增 `tests/test_evaluation.py`（17 个）：冻结集摘要与分片隔离、迁移题
 unseen、模拟不能进迁移通道、真实迁移只接受可信来源、模拟数据不能重标为真实证据、
@@ -869,6 +948,11 @@ Python 侧新增 `tests/test_evolution.py`（35 个）：候选契约与受保�
   真实内容库/题型模板、真实学生行为校准（当前模拟是合成行为模型）、真实对照/延迟
   保持迁移实验、跨进程模拟调度与持久化，也没有把演化候选接入真实交付/UI。Step 10
   只提供可测试的演化/隔离/可复现边界，不宣称生产可用。
+- FSRS 校准仍是合成骨架：参数只从合成 review 序列拟合，`/8` 示意曲线与线性难度项
+  固定，只拟合 6 维动力学向量；没有真实版本/人群校准、真实遗忘/保持数据、生产参数
+  注册表与热切换、真实 held-out 冻结集、真实审批后台与持久审计存储；`activation`
+  只返回冻结配置对象并记录决策，从不写 `MemoryState`/`StudentTwin`，也不是真实效果
+  声明。Step 11 只提供可测试的拟合/不确定性/候选边界，不宣称生产可用。
 - FSRS 参数为示意值，不是生产校准参数。
 - `Config` 已在 Step 7 改为 Schemastery 校验并导出为 Cordis `Config`；残留真实配置
   中心的变更审批/回滚与热重载审计。
