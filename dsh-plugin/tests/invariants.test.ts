@@ -497,7 +497,7 @@ function createTestContext(): {
   }
 }
 
-test('plugin registers five reversible tools and host-resolved tools work', async () => {
+test('plugin registers six reversible tools and host-resolved tools work', async () => {
   const harness = createTestContext()
   applyPlugin(harness.ctx, {
     profile: 'student-facing',
@@ -506,6 +506,7 @@ test('plugin registers five reversible tools and host-resolved tools work', asyn
   })
   assert.deepEqual([...harness.tools.keys()].sort(), [
     'aeh_check_curriculum',
+    'aeh_generate_report',
     'aeh_prepare_intervention',
     'aeh_schedule_review',
     'aeh_select_probe',
@@ -625,6 +626,76 @@ test('plugin registers five reversible tools and host-resolved tools work', asyn
   )) as { observationsReceived: number; ignoredReadingObservations: number }
   assert.equal(review.observationsReceived, 1)
   assert.equal(review.ignoredReadingObservations, 1)
+
+  const reportTool = harness.tools.get('aeh_generate_report')
+  assert.ok(reportTool)
+  const report = (await reportTool.execute(
+    {
+      audience: 'teacher',
+      studentRef: STUDENT_REF,
+      windowStart: '2026-03-02T00:00:00Z',
+      windowEnd: '2026-03-03T00:00:00Z',
+      events: [
+        {
+          aggregateRef: 'agg.001',
+          studentRef: STUDENT_REF,
+          occurredAt: '2026-03-02T09:00:00Z',
+          kind: 'attempt_aggregate',
+          consentScope: 'educational_report',
+          kcId: 'kc.fraction.add',
+          attempts: 2,
+          independentCorrect: 1,
+          minutes: 4,
+        },
+        {
+          aggregateRef: 'agg.unauthorized',
+          studentRef: STUDENT_REF,
+          occurredAt: '2026-03-02T09:05:00Z',
+          kind: 'attempt_aggregate',
+          consentScope: 'research_only',
+          kcId: 'kc.fraction.add',
+          attempts: 9,
+        },
+      ],
+    },
+    {},
+  )) as {
+    data_minimization: { source_events_used: number; event_refs_included: boolean }
+    totals: { attempts: number }
+    topics: readonly { kc_id: string }[]
+  }
+  assert.equal(report.data_minimization.source_events_used, 1)
+  assert.equal(report.data_minimization.event_refs_included, false)
+  assert.equal(report.totals.attempts, 2)
+  assert.deepEqual(
+    report.topics.map((topic) => topic.kc_id),
+    ['kc.fraction.add'],
+  )
+  // A raw field is rejected by the runtime boundary, not silently ignored.
+  await assert.rejects(
+    async () =>
+      reportTool.execute(
+        {
+          audience: 'teacher',
+          studentRef: STUDENT_REF,
+          windowStart: '2026-03-02T00:00:00Z',
+          windowEnd: '2026-03-03T00:00:00Z',
+          events: [
+            {
+              aggregateRef: 'agg.raw',
+              studentRef: STUDENT_REF,
+              occurredAt: '2026-03-02T09:00:00Z',
+              kind: 'attempt_aggregate',
+              consentScope: 'educational_report',
+              kcId: 'kc.fraction.add',
+              rawAnswer: 'x = 4',
+            },
+          ],
+        },
+        {},
+      ),
+    /not a declared property|unsupported field/,
+  )
 
   harness.dispose()
   assert.equal(harness.tools.size, 0)

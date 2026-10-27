@@ -15,6 +15,7 @@ export const ALLOWED_CAPABILITIES = Object.freeze([
   'session:hypothesis:write',
   'review:schedule:compute',
   'intervention:prepare',
+  'report:aggregate:read',
 ] as const)
 
 export type AehCapability = (typeof ALLOWED_CAPABILITIES)[number]

@@ -36,6 +36,7 @@ import type { CurriculumItem, LearnerProgress } from '../src/domain.ts'
 const STUDENT_REF = 'synthetic.student.001'
 const EXPECTED_TOOLS = [
   'aeh_check_curriculum',
+  'aeh_generate_report',
   'aeh_prepare_intervention',
   'aeh_schedule_review',
   'aeh_select_probe',
@@ -224,6 +225,83 @@ test('dsh runtime rejects malformed arguments before the tool body runs', async 
       (smuggled.value as { reasons: string[] }).reasons,
       ['item_not_found'],
     )
+  } finally {
+    await app.dispose()
+  }
+})
+
+test('aggregate report tool compiles a minimised schema and rejects raw fields', async () => {
+  const app = await buildIsolatedApp()
+  try {
+    const schema = app.root.tools
+      .schemas()
+      .find((candidate) => candidate.name === 'aeh_generate_report')
+    assert.ok(schema)
+    const parameters = schema.parameters as {
+      type: string
+      required: string[]
+      properties: Record<string, unknown>
+    }
+    assert.equal(parameters.type, 'object')
+    assert.deepEqual(parameters.required.sort(), [
+      'audience',
+      'events',
+      'studentRef',
+      'windowEnd',
+      'windowStart',
+    ])
+
+    const report = await call(app, 'aeh_generate_report', {
+      audience: 'guardian',
+      studentRef: STUDENT_REF,
+      windowStart: '2026-03-02T00:00:00Z',
+      windowEnd: '2026-03-03T00:00:00Z',
+      events: [
+        {
+          aggregateRef: 'agg.contract.001',
+          studentRef: STUDENT_REF,
+          occurredAt: '2026-03-02T09:00:00Z',
+          kind: 'review_aggregate',
+          consentScope: 'guardian_report',
+          kcId: 'kc.fraction.add',
+          reviewsDue: 2,
+          reviewsCompleted: 1,
+          minutes: 3,
+        },
+      ],
+    })
+    assert.equal(report.isError, false)
+    const value = report.value as {
+      data_minimization: {
+        source_events_used: number
+        event_refs_included: boolean
+      }
+    }
+    assert.equal(value.data_minimization.source_events_used, 1)
+    assert.equal(value.data_minimization.event_refs_included, false)
+    assert.equal(JSON.stringify(value).includes('agg.contract.001'), false)
+
+    // The schema is closed: a raw answer field is an INVALID_ARGS rejection,
+    // not data that reaches the report pipeline.
+    const rawField = await call(app, 'aeh_generate_report', {
+      audience: 'teacher',
+      studentRef: STUDENT_REF,
+      windowStart: '2026-03-02T00:00:00Z',
+      windowEnd: '2026-03-03T00:00:00Z',
+      events: [
+        {
+          aggregateRef: 'agg.contract.raw',
+          studentRef: STUDENT_REF,
+          occurredAt: '2026-03-02T09:00:00Z',
+          kind: 'attempt_aggregate',
+          consentScope: 'educational_report',
+          kcId: 'kc.fraction.add',
+          rawAnswer: 'x = 4',
+        },
+      ],
+    })
+    assert.equal(rawField.isError, true)
+    assert.equal(rawField.error?.info?.code, 'INVALID_ARGS')
   } finally {
     await app.dispose()
   }

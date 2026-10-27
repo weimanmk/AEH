@@ -133,3 +133,30 @@ export {
   type TwinAppendResult,
   type TwinRollbackResult,
 } from './host/twin-adapter.ts'
+export {
+  FileEventStore,
+  FileEventStoreConfigError,
+  FileEventStoreDisabledError,
+  FileEventStoreIntegrityError,
+  FileStoreConsentError,
+  type DeletionTombstone,
+  type FileEventStoreOptions,
+  type PersistedEventRecord,
+} from './host/file-event-store.ts'
+export {
+  AGGREGATE_KINDS,
+  AUDIENCES,
+  AUDIENCE_GUARDIAN,
+  AUDIENCE_TEACHER,
+  DEFAULT_AUDIENCE_SCOPES,
+  ReportError,
+  effectiveScopes,
+  generateReport,
+  reportToDict,
+  reportToMarkdown,
+  type AggregateEvent,
+  type AggregateEventInput,
+  type Audience,
+  type LearningReport,
+  type ReportTopic,
+} from './report.ts'
