@@ -1,19 +1,23 @@
-# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5）
+# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6）
 
 状态：**已用真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` 替换离线适配层，
 并在一个独立隔离的 Cordis loader 实例中完成加载/卸载与工具契约测试**。Step 5 在
 此基础上新增第六个工具 `aeh_generate_report`（只接收已授权聚合事件）、一个默认
 不启用的文件事件存储 `FileEventStore`（append-only / 幂等 / 版本回滚 / 保留期 /
-同意撤回删除传播），以及 Python 侧的独立冻结评测协议（规范 §19）。仍**未**接入
-真实学生数据，也**未**加载进任何正在运行的 dsh 会话。本文说明 Step 1 核心如何
-映射为教育插件与工具、默认权限边界，以及真正接入 dsh 运行时还需要补什么。
+同意撤回删除传播），以及 Python 侧的独立冻结评测协议（规范 §19）。Step 6 新增
+**宿主侧**受控自进化骨架 `aeh/evolution.py` 与 `dsh-plugin/src/host/evolution.ts`：
+候选只允许是配置/策略/提示模板的版本化变更记录，经冻结评测集隔离评测、默认拒绝的
+显式审批、仅作用于合成会话比例的灰度与熔断回滚，全链路追加式审计；**不新增任何
+模型可调用的自进化工具**，审批与回滚只能由宿主侧调用。仍**未**接入真实学生数据，
+也**未**加载进任何正在运行的 dsh 会话。本文说明 Step 1 核心如何映射为教育插件与
+工具、默认权限边界，以及真正接入 dsh 运行时还需要补什么。
 
-Step 5 不修改 `aeh/` 的 Step 1/2 行为（只新增 `aeh/evaluation.py` 与
-`aeh/eval_cli.py`），不接入真实学生数据，不复制 `references/deepseek-harness/`
-的代码；`references/` 与 `spec/` 保持只读。隔离测试只在本目录 `dsh-plugin/` 内
-安装依赖（`dsh-plugin/.npm-cache`），不读写 `~/.dsh/`，不修改
-`~/workspace/deepseek-harness` 克隆或 npx 安装的 dsh。`FileEventStore` 的测试文件
-只写在 `os.tmpdir()` 下的临时合成目录，默认 `enabled: false`。
+Step 6 不修改 `aeh/` 的 Step 1/2/5 行为（只新增 `aeh/evolution.py`）与插件工具
+目录（仍是六个模型可调用工具），不接入真实学生数据，不复制
+`references/deepseek-harness/` 的代码；`references/` 与 `spec/` 保持只读。隔离测试
+只在本目录 `dsh-plugin/` 内安装依赖（`dsh-plugin/.npm-cache`），不读写 `~/.dsh/`，
+不修改 `~/workspace/deepseek-harness` 克隆或 npx 安装的 dsh。`FileEventStore` 的测试
+文件只写在 `os.tmpdir()` 下的临时合成目录，默认 `enabled: false`。
 
 ## 1. 目标与非目标
 
@@ -28,9 +32,12 @@ Step 5 不修改 `aeh/` 的 Step 1/2 行为（只新增 `aeh/evaluation.py` 与
   干预包、不能绕过门禁。
 
 本步**不**交付：真实 dsh 运行时挂载到生产会话、生产鉴权/KMS、同意管理后台、
-真实交付 UI、真实 LLM/OCR、自进化流水线、生产级持久化。它们列在“接入清单”和
+真实交付 UI、真实 LLM/OCR、生产级持久化、真实生产自进化。它们列在“接入清单”和
 TODO 中。Step 4 交付的是 P0 的**隔离运行时**验证与内存适配器；Step 5 在内存适配器
 之上交付**最小**文件事件存储、报告工具与独立评测协议，全部仍是合成/测试实现。
+Step 6 交付**宿主侧**受控自进化骨架（候选登记、隔离评测、默认拒绝审批、合成灰度、
+熔断回滚、追加式审计），仍然没有生产部署通道、没有真实学生数据、没有模型可调用的
+自进化工具。
 
 ## 2. 代码结构
 
@@ -55,6 +62,7 @@ dsh-plugin/
       twin-adapter.ts       # 内存宿主孪生适配器：来源认证、幂等、审计
       file-event-store.ts   # Step 5：默认关闭的 append-only 文件事件存储
       delivery.ts           # 宿主侧审批 + 交付门（工具不交付）
+      evolution.ts          # Step 6：宿主侧受控自进化控制面（非工具）
     core/
       curriculum-gate.ts    # 对应 aeh/curriculum_gate.py
       twin.ts               # 对应 aeh/twin.py（宿主侧，不暴露写工具）
@@ -67,6 +75,7 @@ dsh-plugin/
     host-adapters.test.ts   # 12 个宿主适配器契约测试
     report.test.ts          # Step 5：8 个聚合报告边界测试
     persistence.test.ts     # Step 5：8 个文件事件存储测试
+    evolution.test.ts       # Step 6：22 个宿主侧自进化骨架测试
     contract.test.ts        # 7 个真实 Cordis/dsh 运行时契约测试
 ```
 
@@ -295,6 +304,11 @@ Step 4 新增的内存适配器位于 `src/host/`：
 `aeh_read_raw_student_data`。这不是遗漏，是默认权限设计的一部分。`aeh_generate_report`
 也不接收题目原文、答案、图片、步骤或原始事件 id：schema 闭合 + 运行时白名单双重拒绝。
 
+Step 6 同样**没有** `aeh_*_evolution_*` / `aeh_approve_*` / `aeh_rollback_*` 工具：
+候选登记、隔离评测、批准、灰度、晋升与回滚只在宿主侧
+`src/host/evolution.ts` / `aeh/evolution.py` 中调用，模型最多能提供候选记录数据，
+不能审批、晋升或回滚任何版本。
+
 门禁/诊断/干预工具的参数里**没有** curriculum item、progress 或安全标注对象；
 模型只传 `itemId` / `studentRef`。`HostContext.resolveProgress` 和
 `resolveItem` 返回宿主已授权的快照；默认实现返回 `undefined`，因此插件在没有
@@ -457,6 +471,26 @@ OK: loader mount, dsh schema validation, cancellation, timeout, and unload verif
 CI 无新增外部服务：Python job 直接运行 stdlib 评测脚本，Node job 仍是 `npm ci`
 + `tsc --noEmit` + `node --test` + 隔离 loader 证据。
 
+### Step 6 完成情况（受控自进化骨架，规范 §27）
+
+状态图例同上。Step 6 是**宿主侧骨架**：它实现了候选登记、隔离评测、默认拒绝审批、
+合成会话灰度、熔断与回滚、追加式审计五个环节，但**没有**生产部署通道，也没有模型
+可调用的自进化工具（插件工具目录仍是六个）。所有评测与演示只用合成 fixture。
+
+| Step 6 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 候选生成与登记（配置/策略/提示模板的版本化变更记录） | **已完成（合成数据）** | `aeh/evolution.py` 的 `Candidate` + `CandidateRegistry` 与 `src/host/evolution.ts` 的 `Candidate` + `CandidateRegistry`：候选只能是 `config` / `policy` / `prompt_template`，带 `source` / `change_summary` / `impact_scope` / `baseline_version`，`changes` 必须是可 JSON 化的声明式数据。候选不能声明 `target_files` 或 `mutates_production`。**残留**：真实候选来源检测器（漂移/回归/成本）与 PR/变更单集成本轮未做 |
+| 候选不得降低门禁/权限/隐私（protected invariants） | **已完成** | 双方模块递归拒绝 `changes` 的键名或 `impact_scope` 条目中出现课程门禁、安全门禁、权限、同意、隐私、真实-模拟隔离、observed 孪生写、自我批准、回滚权、原始学生数据、DB 写、凭据、网络、任意文件等 token（`ProtectedInvariantError`）。这些变更必须走独立治理流程（规范 §27.1）。测试：`tests/test_evolution.py`、`tests/evolution.test.ts` |
+| 隔离评测（冻结评测集 + 隔离沙箱；模拟收益/真实迁移分开） | **部分** | Python 侧 `IsolatedSandbox` 直接复用 Step 5 `FrozenEvalSet` + `EvaluationProtocol`：模拟通道只能引用 train/explanation，真实通道只接受可信来源的 unseen transfer，模拟数据不能重标为真实；TypeScript 侧 `IsolatedSandbox` 接收宿主评测服务产出的分通道摘要并做同样的筛查/晋升判定。评测不通过或证据不足（无证据、模拟收益低于阈值、真实迁移低于阈值/非 unseen/来源不可信）时**自动拒绝**。**残留**：TS 侧未内置冻结集协议（由宿主评测服务提供摘要）；真实 RCT/对照组、延迟保持未做 |
+| 批准（显式、带审批人/时间/理由，默认拒绝） | **已完成** | `ApprovalRecord` + `_assert_host_actor`：无审批记录、非宿主角色、`approved_by` 与操作者不一致、或候选作者自我批准都会拒绝；只有通过隔离评测的候选才能被审批。测试覆盖默认拒绝与自我批准 |
+| 灰度（仅合成会话比例，带熔断与一键回滚） | **已完成（合成）** | `CanaryConditions` + `observe_canary`：canary 强制 `synthetic_only=True`，`fraction ∈ (0,1]`；样本量达到 `min_samples` 且回归或错误率超阈值时自动触发 `circuit_breaker` 并立即回滚。**残留**：真实流量分级、影子实验、监控指标接入未做 |
+| 回滚（恢复上一稳定版本 + 记录事件） | **已完成（内存/合成）** | `rollback` 恢复 `baseline_version` / `previous_stable_version` 并追加 `RollbackEvent`；只允许宿主角色调用，候选不能自行回滚生产（`RollbackDeniedError`）。**残留**：真实部署/配置中心的版本切换未做 |
+| 审计（候选/评测/批准/灰度/回滚全链路追加式，无原始学生数据） | **已完成（内存）** | 单一 `AuditLog` / `EvolutionAuditLog`，无更新/删除 API，递归拒绝 `answer` / `payload` / `student_name` / `trace` 等原始数据键；测试断言全链路 action 存在且不含原始数据键。**残留**：跨服务审计汇聚、保留期、防篡改存储未做 |
+| 不新增模型可调用自进化工具 | **已完成** | 插件工具目录仍是六个（`tests/evolution.test.ts` 断言名字里没有 `evolution`/`approve`/`rollback`/`canary`）；审批、灰度、晋升、回滚只在 `src/host/evolution.ts` 中由宿主调用，未注册为 dsh 工具 |
+
+Step 6 的 Python 测试为 `tests/test_evolution.py`（35），TypeScript 测试为
+`tests/evolution.test.ts`（22）。两者都只用合成 fixture，且不读写任何生产路径。
+
 ### P1：上线前应补齐
 
 1. **配置 schema**：用 Schemastery 定义 `Config`，替换 `normalizeConfig` 的运行时
@@ -497,11 +531,11 @@ CI 无新增外部服务：Python job 直接运行 stdlib 评测脚本，Node jo
 cd dsh-plugin
 npm install --cache .npm-cache
 npm run typecheck                      # tsc --noEmit
-node --test tests/*.test.ts            # 48 个测试
+node --test tests/*.test.ts            # 70 个测试
 npm run evidence:loader                # 隔离 loader 加载/卸载证据
 ```
 
-Python 核心测试（Step 5 后共 185 个）：
+Python 核心测试（Step 6 后共 220 个）：
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -509,7 +543,7 @@ python3 -m aeh.eval_cli                 # 可运行的合成评测报告
 python3 -m aeh.eval_cli --json          # 机器可读
 ```
 
-Node 测试分五层：
+Node 测试分六层：
 
 - `tests/invariants.test.ts`：13 个离线不变量测试，用结构化替身驱动插件注册与
   纯逻辑（门禁拒绝、preview 锁定、模拟隔离、证据绑定 mastery、回滚、记忆权重、
@@ -523,6 +557,9 @@ Node 测试分五层：
 - `tests/persistence.test.ts`：8 个文件事件存储测试（默认关闭、合成目录/学生守卫、
   append-only 与幂等、真实来源限制、重开加载与篡改检测、版本回滚、保留期墓碑、
   同意撤回删除传播与读取拒绝）。
+- `tests/evolution.test.ts`：22 个宿主侧自进化测试（候选声明式/受保护不变量拒绝、
+  追加式幂等登记、模拟/真实分通道与自动拒绝、默认拒绝审批与自我批准拒绝、合成灰度
+  与熔断回滚、晋升需真实迁移、候选不能自行回滚、审计无原始数据、无自进化工具）。
 - `tests/contract.test.ts`：7 个真实 Cordis/dsh 运行时契约测试（loader 挂载与
   schema、参数校验、报告工具闭合 schema 与原始字段拒绝、授权/未授权、取消、超时、
   卸载清理）。
@@ -531,6 +568,11 @@ Python 侧新增 `tests/test_evaluation.py`（17 个）：冻结集摘要与分�
 unseen、模拟不能进迁移通道、真实迁移只接受可信来源、模拟数据不能重标为真实证据、
 报告分节与防自证声明、CLI 可运行。
 
+Python 侧新增 `tests/test_evolution.py`（35 个）：候选契约与受保护不变量、追加式
+幂等登记、模拟/真实分离与评测不通过自动拒绝、默认拒绝与自我批准拒绝、合成灰度与
+熔断自动回滚、晋升需真实迁移、候选不能自行回滚、全链路审计与原始数据键拒绝、
+`pipeline_snapshot` 的合成隔离声明。
+
 ## 11. 已知 TODO / 未实现
 
 - 尚未在生产 dsh 会话中挂载；本轮只在独立隔离的 Cordis/dsh 测试实例中验证。
@@ -538,14 +580,18 @@ unseen、模拟不能进迁移通道、真实迁移只接受可信来源、模�
   `MemoryHostTwin.verifyAttestation` 与 `FileEventStore` 的 checksum 是接缝/完整性
   校验，不是密码学来源证明。单机最小保留期与同意撤回删除传播已做（见 §9 Step 5），
   但跨服务/备份/向量索引的删除传播未做。
-- 真实交付 UI/LMS 通道、审批后台、独立评测器与回滚流水线未做。
+- 真实交付 UI/LMS 通道、审批后台、独立评测器与生产部署通道未做；Step 6 只提供
+  **宿主侧内存/合成骨架**（候选登记、隔离评测、默认拒绝审批、合成灰度、熔断回滚、
+  追加式审计），没有生产发布/配置中心，也没有模型可调用的自进化工具。
 - 没有真实 LLM 生成、OCR、图片脱敏、数学判题或内容安全服务。
 - 报告插件是最小策略骨架，不是身份/同意服务：真实身份网关、同意记录来源、法定
   监护人流程、审计与保留期仍需宿主实现；Step 2 的 `aeh/report.py` 仍保留为离线
   Python 参考实现。
 - 评测协议只提供冻结集隔离、模拟/真实分离与防自证约束；没有真实 RCT/对照组、
   延迟保持、跨知识迁移与不良效果测量，且本仓库只用合成数据。
-- 没有自进化候选—隔离评测—批准—灰度—回滚流水线。
+- 自进化仍为骨架：候选来源检测器（漂移/回归/成本）与 PR/变更单生成、真实冻结
+  评测服务、生产灰度/监控接入、跨服务防篡改审计与保留期都未实现；TypeScript 侧
+  的 `IsolatedSandbox` 接收宿主评测摘要而非自己运行冻结集协议。
 - 输出 schema 仍宽松（`type: 'json'`；参数对象开放但工具体只读白名单字段）；
   locale、速率限制、可观察性和跨进程并发控制未实现。
 - FSRS 参数为示意值，不是生产校准参数。
