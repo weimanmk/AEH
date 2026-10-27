@@ -24,6 +24,14 @@ import {
   type GateThresholds,
 } from './core/curriculum-gate.ts'
 import {
+  normalizeRetrievalQuery,
+  prerequisiteDiagnostics,
+  type KnowledgeGraph,
+  type RetrievalHit,
+  type RetrievalQuery,
+  type RetrievalQueryInput,
+} from './core/curriculum-graph.ts'
+import {
   HypothesisSet,
   type ReweightOptions,
 } from './core/hypothesis.ts'
@@ -76,6 +84,16 @@ export interface HostContext {
   readonly tenantRef?: string
   resolveProgress(studentRef: string): LearnerProgress | undefined
   resolveItem(itemId: string): CurriculumItem | undefined
+  /**
+   * Step 9: the tenant/session-scoped curriculum graph version. Optional so
+   * existing hosts still fail closed for retrieval rather than guessing.
+   */
+  resolveGraph?(): KnowledgeGraph | undefined
+  /**
+   * Step 9: host-authorised local retrieval over this session's item bank.
+   * The model never supplies the bank or its annotations.
+   */
+  retrieveItems?(query: RetrievalQuery): readonly RetrievalHit[]
 }
 
 export const NO_HOST_CONTEXT: HostContext = Object.freeze({
@@ -159,6 +177,31 @@ export interface PreparedIntervention {
   readonly requiresHostApproval: true
   readonly itemDecisions: Readonly<Record<string, GateDecision>>
   readonly allowedKcs: readonly string[]
+}
+
+/** One retrieval hit that passed the gate and prerequisite closure. */
+export interface RetrievalCandidateDecision {
+  readonly itemId: string
+  readonly hit: RetrievalHit
+  readonly decision: GateDecision
+  readonly missingPrerequisites: readonly string[]
+  readonly unknownKcs: readonly string[]
+}
+
+export interface RetrievalGateRejection {
+  readonly itemId: string
+  readonly reasons: readonly string[]
+}
+
+/**
+ * Result of host-authorised retrieval. `hits` are opaque summaries only;
+ * `candidates` is the subset that passed the gate *and* prerequisite closure.
+ */
+export interface RetrievalGatePlan {
+  readonly hits: readonly RetrievalHit[]
+  readonly candidates: readonly RetrievalCandidateDecision[]
+  readonly rejected: readonly RetrievalGateRejection[]
+  readonly blockedReason?: string
 }
 
 /** Diagnostic candidate that refers to a host-catalog item by opaque id. */
@@ -290,6 +333,127 @@ export class AehEducationService {
       }
     }
     return allow(item, progress, mode, thresholds)
+  }
+
+  /**
+   * Step 9: host-authorised retrieval followed by the fail-closed gate.
+   *
+   * The host owns both the graph and the item bank. Every hit is re-resolved
+   * through `HostContext.resolveItem`, checked by the existing curriculum
+   * gate, and then checked against the transitive prerequisite closure. A
+   * missing graph, missing retrieval adapter, unknown KC, or unmet
+   * prerequisite is a rejection; only fully admitted hits become candidates.
+   */
+  retrieveCandidatesFor(
+    studentRef: string,
+    queryInput: RetrievalQueryInput | RetrievalQuery,
+    mode: GateMode | string,
+    thresholds: GateThresholds = {},
+  ): RetrievalGatePlan {
+    const query = normalizeRetrievalQuery(queryInput)
+    const progress = this.resolveProgress(studentRef)
+    if (progress === null) {
+      return Object.freeze({
+        hits: Object.freeze([]),
+        candidates: Object.freeze([]),
+        rejected: Object.freeze([]),
+        blockedReason: 'progress_unavailable',
+      } satisfies RetrievalGatePlan)
+    }
+
+    const retrieve = this.host.retrieveItems
+    const hits =
+      typeof retrieve === 'function'
+        ? Object.freeze([...retrieve.call(this.host, query)])
+        : Object.freeze([] as RetrievalHit[])
+
+    const resolveGraph = this.host.resolveGraph
+    const graph =
+      typeof resolveGraph === 'function'
+        ? resolveGraph.call(this.host)
+        : undefined
+    if (graph === undefined) {
+      return Object.freeze({
+        hits,
+        candidates: Object.freeze([]),
+        rejected: Object.freeze(
+          hits.map((hit) =>
+            Object.freeze({
+              itemId: hit.itemId,
+              reasons: Object.freeze(['graph_unavailable']),
+            }),
+          ),
+        ),
+        blockedReason: 'graph_unavailable',
+      } satisfies RetrievalGatePlan)
+    }
+    if (typeof retrieve !== 'function') {
+      return Object.freeze({
+        hits: Object.freeze([]),
+        candidates: Object.freeze([]),
+        rejected: Object.freeze([]),
+        blockedReason: 'retrieval_unavailable',
+      } satisfies RetrievalGatePlan)
+    }
+
+    const candidates: RetrievalCandidateDecision[] = []
+    const rejected: RetrievalGateRejection[] = []
+    for (const hit of hits) {
+      const item = this.resolveItem(hit.itemId)
+      if (item === null) {
+        rejected.push(
+          Object.freeze({
+            itemId: hit.itemId,
+            reasons: Object.freeze(['item_not_found']),
+          }),
+        )
+        continue
+      }
+      const decision = this.checkCurriculum(item, progress, mode, thresholds)
+      const diagnostics = prerequisiteDiagnostics(
+        graph,
+        item.requiredKcs ?? [],
+        decision.allowedKcs,
+      )
+      const reasons = [
+        ...decision.reasons,
+        ...(diagnostics.unknownKcs.length > 0
+          ? [`kc_not_in_graph:${diagnostics.unknownKcs.join(',')}`]
+          : []),
+        ...(diagnostics.missingPrerequisites.length > 0
+          ? [
+              `prerequisites_not_met:${diagnostics.missingPrerequisites.join(',')}`,
+            ]
+          : []),
+      ]
+      if (
+        decision.allowed &&
+        diagnostics.missingPrerequisites.length === 0 &&
+        diagnostics.unknownKcs.length === 0
+      ) {
+        candidates.push(
+          Object.freeze({
+            itemId: hit.itemId,
+            hit,
+            decision,
+            missingPrerequisites: diagnostics.missingPrerequisites,
+            unknownKcs: diagnostics.unknownKcs,
+          }),
+        )
+      } else {
+        rejected.push(
+          Object.freeze({
+            itemId: hit.itemId,
+            reasons: Object.freeze(reasons),
+          }),
+        )
+      }
+    }
+    return Object.freeze({
+      hits,
+      candidates: Object.freeze(candidates),
+      rejected: Object.freeze(rejected),
+    } satisfies RetrievalGatePlan)
   }
 
   /** Apply one session-scoped hypothesis operation to a supplied snapshot. */
