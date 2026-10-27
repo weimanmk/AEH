@@ -1,7 +1,7 @@
 # AEH — Adaptive Cognitive Twin Education Harness
 
 AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库对应
-[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6**：
+[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7**：
 Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之上增加一个完全离线的
 合成演示会话，以及只消费已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript
 的 dsh / Cordis 教育插件骨架；Step 4 把插件骨架的离线适配层替换为真实的
@@ -10,7 +10,10 @@ Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之�
 聚合事件的报告工具、默认关闭的本地文件事件存储（保留期与同意撤回删除传播），
 以及独立冻结的评测协议（模拟收益与真实迁移严格分离）；Step 6 增加**宿主侧**受控
 自进化骨架（候选登记 → 隔离评测 → 默认拒绝审批 → 合成灰度/熔断 → 晋升/回滚 →
-追加式审计），不新增模型可调用的自进化工具。
+追加式审计），不新增模型可调用的自进化工具；Step 7 完成 P1 加固：Schemastery 配置
+校验 fail loud、六个工具的闭合输出 schema、绑定 dsh session/agent scope 的假设快照
+（TTL/隔离/清理，不写长期孪生），以及追加式脱敏审计（门禁拒绝原因、工具调用、审批
+与交付回执，带不可反识别的学生/租户维度）。
 
 当前状态：**核心骨架 + 合成演示 + 已在隔离实例中验证的插件，不是生产系统**。
 Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真实 `@deepseek-ai/*`
@@ -220,7 +223,7 @@ node --test tests/*.test.ts
 13 个离线不变量测试覆盖门禁拒绝、preview 锁定、模拟事件隔离、证据绑定 mastery、回滚、
 阅读/提示/独立作答权重、FSRS 反解、假设归一化、诊断门禁复检与跳过、干预包
 训练/迁移隔离、默认权限拒绝、插件注册与卸载，以及无宿主授权时的 fail-closed。
-（Step 6 后 `node --test tests/*.test.ts` 共 70 个测试，见下文。）
+（Step 7 后 `node --test tests/*.test.ts` 共 93 个测试，见下文。）
 
 可选类型检查（需要先 `npm install` 安装 devDependencies）：
 
@@ -262,9 +265,10 @@ Step 4 在**不改变 Python 核心行为、不改动运行中 harness** 的前�
 
 **仍未完成**（文档中如实列出，未假装实现）：生产鉴权/KMS/签名 attestation、
 持久化孪生存储、租户隔离、保留期与删除传播、真实交付 UI/LMS 与审批后台、生产级
-独立评测与回滚通道、输出 schema 收紧、locale/速率限制、FSRS 生产校准。报告工具与
+独立评测与回滚通道、locale/速率限制、FSRS 生产校准。报告工具与
 独立冻结评测协议已在 Step 5 完成最小实现，宿主侧受控自进化骨架已在 Step 6 完成
-（均仍为合成/内存实现）。本轮**只准备、不交付**，也不引入真实学生数据或密钥。
+（均仍为合成/内存实现）；输出 schema 收紧、会话状态与脱敏审计在 Step 7 完成
+（见下文，仍是内存/合成实现）。本轮**只准备、不交付**，也不引入真实学生数据或密钥。
 
 ## Step 5：报告插件、持久化最小模型与独立评测
 
@@ -419,6 +423,81 @@ Step 6 只在本目录内工作，不修改运行用 dsh（`~/.dsh/`、`~/worksp
   全部使用合成 fixture。**未完成**：真实候选来源检测器与 PR/变更单生成、真实冻结
   评测服务、生产灰度/监控接入、跨服务防篡改审计与保留期、真实部署/回滚通道。
 
+## Step 7：P1 加固——配置与输出 schema、会话状态、审计
+
+Step 7 只在 `dsh-plugin/` 与文档内工作，不修改运行用 dsh（`~/.dsh/`、
+`~/workspace/deepseek-harness` 克隆、npx 安装的 dsh），不把插件加载进正在执行本任务的
+harness 会话，全部使用合成数据；`references/` 与 `spec/` 只读。
+
+### 7.1 Schemastery 配置校验（fail loud）
+
+`dsh-plugin/src/config.ts` 用 Schemastery 定义 `AEH_CONFIG_SCHEMA`（`profile`、
+`targetRetention ∈ (0,1)`、`allowedModes`），插件入口把同一个 schema 导出为 Cordis 的
+`Config`：
+
+- Cordis / Cordis loader 在 `apply` 运行前校验并填默认值；非法值抛 `ValidationError`
+  （如 `$.targetRetention expected number <= 1`、非法 `profile`），**不会**静默回退默认值；
+- `apply` 与 `AehEducationService` 通过 `resolveAehConfig` 复用同一 schema，直接/嵌入式
+  调用也只有一条校验路径；
+- 显式 `undefined` 视为未提供并使用默认值；越界值仍 fail loud；
+- `host` / `permissions` 是宿主注入的不可序列化对象，按 `any()` 透传，不写入 YAML。
+
+### 7.2 六个工具的闭合输出 schema
+
+`dsh-plugin/src/output-schemas.ts` 为六个工具各定义一个顶层
+`type: 'object'` + `additionalProperties: false` 的输出 schema，替换原先宽松的
+`type: 'json'`。dsh-tools 在执行每个工具后用该 schema 校验返回值，越界返回变成
+`INVALID_TOOL_OUTPUT`（`tests/step7.test.ts` 用真实 ToolRuntime 验证），而不是静默
+到达模型。动态 key 的映射（假设权重、预测、`itemDecisions`）在嵌套层使用
+`additionalProperties: true`（该 JSON Schema 子集不支持带类型的
+`additionalProperties`），但每个声明对象本身的字段集仍闭合。
+
+### 7.3 会话级假设快照（session/agent scope + TTL + 清理）
+
+`dsh-plugin/src/host/session-state.ts` 的 `SessionSnapshotStore`：
+
+- 每个快照绑定 `(sessionId, agentId)`；不同 session 或不同 agent 读取一律
+  `undefined`，不会被“领养”；
+- 明确 TTL（默认 15 分钟，可注入时钟与 id 工厂用于确定性测试），过期即删除，并有
+  `sweep()` / `cleanupExpired()` 与每 scope / 全局限额（淘汰最旧，容量约束 fail loud
+  而非静默丢弃）；
+- `endSession(sessionId)` 清除该 session 的所有 agent scope；插件入口把
+  `session/disposed` 桥接到 `endSession` 并写一条 `session.cleanup` 审计，卸载时
+  `clear()` 丢弃全部快照；
+- 存储与 `StudentTwin` / `MemoryHostTwin` 没有读写路径，测试断言快照往返后孪生
+  `version` 与 `evidenceRevision` 不变；
+- 工具 `aeh_update_hypotheses` 在缺少 `exec.agent.id` 时拒绝 `snapshotRef` 复用
+  （fail closed），有 scope 时返回 `snapshotRef` / 过期时间 / TTL / scope 标记。
+
+### 7.4 追加式脱敏审计
+
+`dsh-plugin/src/host/audit-log.ts` 的 `AehAuditLog` 是 append-only（无 update/delete
+API，容量满时 fail loud）：
+
+- 记录 `gate.decision`（含机器可读拒绝原因码）、`tool.call`（只记工具名与
+  accepted/rejected，不记参数）、`approval.record`、`delivery.receipt`、
+  `session.cleanup`；
+- `detail` 只允许标量或标量数组，并递归拒绝 `answer` / `question` / `image` /
+  `payload` / `prompt` / `trace` / `studentName` 等原始学生数据键；工具调用审计不含
+  参数（测试断言题目 id 不出现在审计 JSON 中）；
+- 学生/租户维度以 `sha256(salt, tenantRef, ref)` 伪名存 `studentKey` / `tenantKey`，
+  原始 `studentRef` / `tenantRef` 不落库；salt 由宿主注入（默认每进程随机），文档明确
+  这是伪名化而非匿名化；
+- `metrics()` 只输出计数与伪名 key，`ApprovalLedger` / `HostDeliveryAdapter` 接受可选
+  audit，把审批与交付回执（含 idempotent 重放不重复计数）写入同一日志。
+
+### 7.5 本地验证与隔离边界
+
+- `python3 -m unittest discover -s tests -v`：220 通过（未改 Step 1–6 行为）；
+- `cd dsh-plugin && npm run typecheck`：通过；
+- `node --test tests/*.test.ts`：93 通过（新增 `tests/step7.test.ts` 23 个）；
+- `npm run evidence:loader`：独立隔离实例中挂载/卸载 6 个工具，输出与 Step 4 一致；
+- 隔离边界仍与 Step 4–6 相同：只在本目录安装依赖（`.npm-cache`），不读写 `~/.dsh/`，
+  不改参考克隆或 npx dsh，不把插件加载进本任务会话；
+- **未完成**：真实 KMS/签名 attestation 与不可篡改审计存储、跨进程/跨服务审计汇聚与
+  保留期、法定监护人同意网关、真实多租户会话存储、locale 与速率限制（安全加固留待
+  Step 8）。
+
 ## 目录结构
 
 ```text
@@ -436,21 +515,25 @@ aeh/
   eval_cli.py          # Step 5 可运行评测入口（python -m aeh.eval_cli）
   evolution.py         # Step 6 受控自进化骨架（规范 §27，宿主侧）
   demo.py              # Step 2 命令行入口（python -m aeh.demo）
-dsh-plugin/            # Step 3+4+5+6 TypeScript dsh / Cordis 教育插件
-  src/index.ts         # Cordis 插件入口（name / inject / apply）
+dsh-plugin/            # Step 3+4+5+6+7 TypeScript dsh / Cordis 教育插件
+  src/index.ts         # Cordis 插件入口（name / inject / Config / apply）
   src/dsh.ts           # 真实 cordis / dsh-tools 薄 authoring 适配层
+  src/config.ts        # Step 7 Schemastery 配置校验（fail loud）
+  src/output-schemas.ts # Step 7 六个工具的闭合输出 schema
   src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包
   src/host/            # 内存同意 / HostContext / 孪生 / 交付适配器
   src/host/file-event-store.ts  # Step 5 默认关闭的文件事件存储
   src/host/evolution.ts         # Step 6 宿主侧受控自进化控制面（非工具）
+  src/host/session-state.ts     # Step 7 session/agent 级假设快照（TTL/隔离/清理）
+  src/host/audit-log.ts         # Step 7 追加式脱敏审计与伪名指标
   src/report.ts        # Step 5 聚合报告边界（对应 aeh/report.py）
   src/tools.ts         # 六个教育工具
   src/permissions.ts   # 默认最小权限
   scripts/             # 隔离 loader 加载证据脚本
-  tests/               # Node 24 不变量 + 宿主适配器 + 报告 + 持久化 + 自进化 + 契约
+  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7
   package.json         # 真实 @deepseek-ai/* 依赖（只装在本目录）
 docs/
-  dsh-integration.md   # Step 3+4+5+6 映射、权限与完成情况
+  dsh-integration.md   # Step 3+4+5+6+7 映射、权限与完成情况
   evaluation-report-template.md  # Step 5 评测报告模板
 tests/                 # Python 标准库 unittest 测试
 .github/workflows/ci.yml
@@ -547,7 +630,7 @@ Node 测试分六层：13 个离线不变量测试、12 个宿主适配器测试
 
 ## 已知边界 / TODO
 
-Step 1–6 有意不做以下内容，后续步骤再实现：
+Step 1–7 有意不做以下内容，后续步骤再实现：
 
 - 生产级持久化：Step 5 只提供默认关闭的本地文件最小模型（append-only、幂等、
   版本/回滚、保留期、同意撤回删除传播）；跨服务/备份/向量索引的删除传播、加密、
@@ -566,8 +649,9 @@ Step 1–6 有意不做以下内容，后续步骤再实现：
   服务、生产灰度/监控接入、跨服务防篡改审计与保留期、真实部署/回滚通道；Step 6
   只交付宿主侧内存/合成骨架。
 - 真实学生迁移与延迟保持的校准；当前记忆参数为示意值，小样本仍保留高不确定性。
-- 插件输出 schema 收紧、速率限制、locale 与跨进程并发控制；`Config` 尚未改用
-  Schemastery 校验。
+- 速率限制、locale 与跨进程并发控制；Step 7 已完成 Schemastery `Config` 校验与六个
+  工具的闭合输出 schema，但审计仍是内存 append-only、会话快照仍是内存存储，且
+  提示注入/越权/超大 payload 的防护留待 Step 8。
 
 ## 安全约定
 
@@ -588,6 +672,11 @@ Step 1–6 有意不做以下内容，后续步骤再实现：
   权限、隐私、真实-模拟隔离等受保护不变量，不能写生产文件；审批默认拒绝、灰度仅
   合成会话比例、带熔断与回滚，全链路追加式审计不含原始学生数据。审批与回滚只在
   宿主侧调用，不新增模型工具。
-- Step 3+4+5+6 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
+- Step 3+4+5+6+7 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
   凭据、文件或网络权限，observed 孪生写、干预交付与自进化审批/回滚不属于模型工具。
   隔离测试只使用合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
+- Step 7 配置非法即 fail loud（不静默回退默认值）；六个工具输出 schema 顶层闭合，
+  越界返回被 dsh 判为 `INVALID_TOOL_OUTPUT`；假设快照绑定 session/agent scope、带
+  TTL 与清理且不写长期孪生；审计 append-only、只收标量与原因码、递归拒绝原始学生
+  数据键，学生/租户维度只以盐化伪名出现在指标中（伪名化非匿名化，salt 需与身份数据
+  同级的密钥存储保管）。
