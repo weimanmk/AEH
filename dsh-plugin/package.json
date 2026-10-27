@@ -1,0 +1,22 @@
+{
+  "name": "@aeh/dsh-education-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AEH education plugin skeleton for dsh / Cordis: curriculum gate, evidence-bound twin boundary, FSRS review, hypotheses, diagnosis, and intervention preparation.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}
