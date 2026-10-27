@@ -1,10 +1,10 @@
 /**
  * Model-facing education tools.
  *
- * Five narrow tools are exposed in the default profile. Every one is
+ * Six narrow tools are exposed in the default profile. Every one is
  * read/compute-only from the host's perspective: it returns a decision, a
- * schedule, or a prepared package, never a database write or a delivered
- * question. The long-term twin has no model-facing write tool.
+ * schedule, a prepared package, or an aggregate report, never a database write
+ * or a delivered question. The long-term twin has no model-facing write tool.
  */
 
 import {
@@ -13,6 +13,13 @@ import {
   throwIfAborted,
   type ToolDefinition,
 } from './dsh.ts'
+import {
+  AUDIENCES,
+  generateReport,
+  reportToDict,
+  type AggregateEventInput,
+  type Audience,
+} from './report.ts'
 import type {
   GateMode,
   HypothesisRecord,
@@ -148,6 +155,44 @@ const interventionPackageSchema = {
   },
 } as const
 
+/**
+ * Aggregate report event schema.
+ *
+ * `additionalProperties: false` keeps raw question/answer/image/payload fields
+ * out of the tool boundary at schema-compile time; `report.ts` re-checks the
+ * field allow-list at runtime so the boundary does not depend on the schema
+ * engine. `aggregateRef` is an opaque aggregate-batch reference used only for
+ * de-duplication; it is not a raw learning-event id and is never rendered.
+ */
+const reportEventSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    aggregateRef: { type: 'string', required: true },
+    studentRef: { type: 'string', required: true },
+    occurredAt: { type: 'string', required: true },
+    kind: {
+      type: 'string',
+      required: true,
+      enum: [
+        'attempt_aggregate',
+        'review_aggregate',
+        'diagnosis_aggregate',
+        'intervention_aggregate',
+      ],
+    },
+    consentScope: { type: 'string', required: true },
+    kcId: { type: 'string', required: true },
+    attempts: { type: 'integer' },
+    independentCorrect: { type: 'integer' },
+    hintedCorrect: { type: 'integer' },
+    hintsRequested: { type: 'integer' },
+    reviewsDue: { type: 'integer' },
+    reviewsCompleted: { type: 'integer' },
+    minutes: { type: 'number' },
+  },
+} as const
+
 interface GateToolArgs {
   readonly mode: GateMode
   readonly itemId: string
@@ -191,6 +236,15 @@ interface InterventionToolArgs {
   readonly package: InterventionPackageRefInput
   readonly studentRef: string
   readonly mode?: GateMode
+}
+
+interface ReportToolArgs {
+  readonly audience: Audience
+  readonly studentRef: string
+  readonly windowStart: string
+  readonly windowEnd: string
+  readonly events: readonly AggregateEventInput[]
+  readonly authorizedScopes?: readonly string[]
 }
 
 function requireValue<T>(value: T | undefined, name: string): T {
@@ -470,6 +524,61 @@ export function createEducationTools(
           args.studentRef,
           args.mode,
         )
+      },
+    }),
+
+    defineTool({
+      name: 'aeh_generate_report',
+      timeoutMs: AEH_TOOL_TIMEOUT_MS,
+      description:
+        'Aggregate already-authorised aggregate events into a minimised teacher/guardian report. The input is fixed to aggregate counters (attempts, correct counts, hint/review counts, minutes) plus an opaque consent scope; there is no field for a question, answer, image, step trace, arbitrary payload, or raw learning-event id. Events for another student, outside the window, unauthorised for the audience, or duplicated are excluded and only counted. The output contains aggregate totals and topic ids, never source references. This is a reporting boundary, not an identity/consent service.',
+      parameters: {
+        audience: {
+          type: 'string',
+          required: true,
+          enum: [...AUDIENCES],
+          description: 'Report audience whose scope set applies.',
+        },
+        studentRef: {
+          type: 'string',
+          required: true,
+          description: 'Opaque pseudonymous student reference in the report.',
+        },
+        windowStart: {
+          type: 'string',
+          required: true,
+          description: 'Inclusive ISO start of the reporting window.',
+        },
+        windowEnd: {
+          type: 'string',
+          required: true,
+          description: 'Exclusive ISO end of the reporting window.',
+        },
+        events: {
+          type: 'array',
+          items: reportEventSchema,
+          required: true,
+          description:
+            'Authorised aggregate events; each carries its own consent scope.',
+        },
+        authorizedScopes: {
+          ...stringArray,
+          description:
+            'Optional caller scope list; it can only narrow the audience defaults.',
+        },
+      },
+      output: { schema: { type: 'json' }, render: renderJson },
+      async execute(raw, exec) {
+        throwIfAborted(exec)
+        const args = raw as ReportToolArgs
+        const report = generateReport(args.events ?? [], {
+          audience: args.audience,
+          studentRef: args.studentRef,
+          windowStart: args.windowStart,
+          windowEnd: args.windowEnd,
+          authorizedScopes: args.authorizedScopes,
+        })
+        return reportToDict(report)
       },
     }),
   ]
