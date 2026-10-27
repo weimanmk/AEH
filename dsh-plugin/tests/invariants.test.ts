@@ -470,20 +470,24 @@ function createTestContext(): {
 } {
   const tools = new Map<string, ToolDefinition>()
   const disposers: Array<() => void> = []
-  const ctx: Context = {
+  // Offline structural double: it implements only the two Cordis surfaces the
+  // plugin uses. The real runtime contract test (tests/contract.test.ts) drives
+  // the genuine Cordis registry, loader, and dsh ToolRuntime.
+  const ctx = {
     tools: {
-      register(definition) {
+      register(definition: ToolDefinition) {
         tools.set(definition.name, definition)
         return () => {
           tools.delete(definition.name)
         }
       },
     },
-    effect(setup) {
+    effect(setup: () => (() => void) | void) {
       const dispose = setup()
       if (typeof dispose === 'function') disposers.push(dispose)
+      return () => {}
     },
-  }
+  } as unknown as Context
   return {
     ctx,
     tools,

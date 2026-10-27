@@ -1,11 +1,11 @@
-# Example composition only. This plugin has not been contract-tested against a
-# live dsh runtime yet. Before loading it, replace `src/dsh.ts` with the real
-# `@deepseek-ai/cordis` and `@deepseek-ai/dsh-tools` imports and add their peer
-# dependencies. See `docs/dsh-integration.md` for the full checklist.
+# Example composition only. The plugin has been contract-tested in an isolated
+# Cordis/dsh instance (see ../docs/dsh-integration.md section 9), but this file is
+# not wired into any running harness.
 #
 # `host` (HostContext) is intentionally absent: it is a host-owned resolver
-# injected by the runtime adapter, not a serialisable YAML field. Without it the
-# gate/probe/intervention tools fail closed.
+# injected by the runtime adapter, not a serialisable YAML field. Use
+# `MemoryHostContext#toHostBinding()` (or a real host adapter) when composing in
+# code. Without it the gate/probe/intervention tools fail closed.
 - name: './dsh-plugin/src/index.ts'
   config:
     profile: student-facing
