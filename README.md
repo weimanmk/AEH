@@ -1,7 +1,7 @@
 # AEH — Adaptive Cognitive Twin Education Harness
 
 AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库对应
-[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7**：
+[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8**：
 Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之上增加一个完全离线的
 合成演示会话，以及只消费已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript
 的 dsh / Cordis 教育插件骨架；Step 4 把插件骨架的离线适配层替换为真实的
@@ -13,7 +13,8 @@ Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之�
 追加式审计），不新增模型可调用的自进化工具；Step 7 完成 P1 加固：Schemastery 配置
 校验 fail loud、六个工具的闭合输出 schema、绑定 dsh session/agent scope 的假设快照
 （TTL/隔离/清理，不写长期孪生），以及追加式脱敏审计（门禁拒绝原因、工具调用、审批
-与交付回执，带不可反识别的学生/租户维度）。
+与交付回执，带不可反识别的学生/租户维度）；Step 8 在工具入口加固：提示注入/越权参数/
+超大 payload/单实例速率限制 fail-closed 并记入审计，错误与日志脱敏。
 
 当前状态：**核心骨架 + 合成演示 + 已在隔离实例中验证的插件，不是生产系统**。
 Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真实 `@deepseek-ai/*`
@@ -223,7 +224,7 @@ node --test tests/*.test.ts
 13 个离线不变量测试覆盖门禁拒绝、preview 锁定、模拟事件隔离、证据绑定 mastery、回滚、
 阅读/提示/独立作答权重、FSRS 反解、假设归一化、诊断门禁复检与跳过、干预包
 训练/迁移隔离、默认权限拒绝、插件注册与卸载，以及无宿主授权时的 fail-closed。
-（Step 7 后 `node --test tests/*.test.ts` 共 93 个测试，见下文。）
+（Step 8 后 `node --test tests/*.test.ts` 共 112 个测试，见下文。）
 
 可选类型检查（需要先 `npm install` 安装 devDependencies）：
 
@@ -265,10 +266,11 @@ Step 4 在**不改变 Python 核心行为、不改动运行中 harness** 的前�
 
 **仍未完成**（文档中如实列出，未假装实现）：生产鉴权/KMS/签名 attestation、
 持久化孪生存储、租户隔离、保留期与删除传播、真实交付 UI/LMS 与审批后台、生产级
-独立评测与回滚通道、locale/速率限制、FSRS 生产校准。报告工具与
+独立评测与回滚通道、locale、跨进程分布式限流、FSRS 生产校准。报告工具与
 独立冻结评测协议已在 Step 5 完成最小实现，宿主侧受控自进化骨架已在 Step 6 完成
-（均仍为合成/内存实现）；输出 schema 收紧、会话状态与脱敏审计在 Step 7 完成
-（见下文，仍是内存/合成实现）。本轮**只准备、不交付**，也不引入真实学生数据或密钥。
+（均仍为合成/内存实现）；输出 schema 收紧、会话状态与脱敏审计在 Step 7 完成，
+工具入口的注入/越权/payload/单实例限流/错误脱敏在 Step 8 完成（见下文，仍是
+内存/合成实现）。本轮**只准备、不交付**，也不引入真实学生数据或密钥。
 
 ## Step 5：报告插件、持久化最小模型与独立评测
 
@@ -498,6 +500,65 @@ API，容量满时 fail loud）：
   保留期、法定监护人同意网关、真实多租户会话存储、locale 与速率限制（安全加固留待
   Step 8）。
 
+## Step 8：工具入口安全加固（提示注入 / 越权 / payload / 限流 / 脱敏）
+
+Step 8 只在 `dsh-plugin/` 与文档内工作，不修改运行用 dsh（`~/.dsh/` 配置与存储、
+`~/workspace/deepseek-harness` 源码克隆、npx 安装的 dsh），不把 AEH 插件加载进正在
+执行本任务的 harness 会话，全部使用合成数据；`references/` 与 `spec/` 只读，`aeh/`
+的 Python 核心行为未改。新增 `dsh-plugin/src/security.ts` 与
+`dsh-plugin/tests/security.test.ts`。
+
+### 8.1 提示注入防护
+
+`src/security.ts` 的 `INJECTION_PATTERNS` 与 `SecurityGuard.assertArgumentSafety`
+在工具体运行前递归扫描参数中的字符串与键名，覆盖中英文的 prompt 覆盖、角色冒充、
+门禁覆盖、权限提升、报告受众变更、审批绕过与密钥套取。命中即抛
+`SecurityError(AEH_INJECTION_REJECTED)`，工具体不执行、决策状态不变，并把
+`instruction_pattern:<category>` 与参数路径写入追加式审计（只记原因码与路径，
+不记原文）。模式锚定“动词 + 受保护对象”，普通课程描述和 `kc.fraction.add` 这类
+opaque id 不会误伤。
+
+### 8.2 越权防护
+
+伪造的进度、标注、scope、`studentRef` 仍然只经宿主 `HostContext.resolveProgress` /
+`resolveItem` 解析，解析不到即 fail-closed；`security.test.ts` 断言伪造标注不能让
+未知 item 通过门禁、另一学生引用得到 `progress_unavailable`、无宿主时内联 progress
+仍拒绝、报告 scope 只能收窄且跨学生事件被排除。`SecurityGuard` 另外拒绝会冒充宿主
+决策对象的参数键（`gateOverride` / `permissions` / `studentRawData` /
+`audienceOverride` / `approvalId` 等），返回 `AEH_UNAUTHORIZED_ARGUMENT`。
+
+### 8.3 超大 payload 拒绝
+
+按 `config.ts` 中 Schemastery 校验的 `security.limits`（默认字符串 4096、数组 256、
+对象键 128、深度 12、序列化 131072 字节）递归拒绝超长字符串/数组、过多键、过深嵌套、
+总字节超限与循环引用，统一返回 `AEH_PAYLOAD_TOO_LARGE` +
+`payload_too_large:<kind>`，错误不回显原始值。非法上限在 `apply` 前 fail loud。
+
+### 8.4 速率限制
+
+`SecurityGuard` 用两个固定窗口分别按 dsh session/agent scope 与 opaque `studentRef`
+计数（默认每 60 秒 session 120 次、学生 240 次），超限返回 `AEH_RATE_LIMITED`；超限
+只影响当前窗口的当前调用，其他 session/学生不受影响，窗口过期后自动恢复。限流桶只
+保留会话/学生键，不写日志、不产出指标。
+
+### 8.5 错误与日志脱敏
+
+工具抛出的错误在离开 body 前由 `redactThrown` 去掉绝对路径、`file://` URL 与密钥
+样式 token 并压平换行；`AehAuditLog` 继续只接受标量/原因码、递归拒绝题目/答案/图片/
+prompt/payload/密钥类键，工具审计从不记录参数。`SecurityError` 继承 dsh
+`HarnessError`，真实 `ToolRuntime` 会把稳定 `info.code` 暴露给调用方。
+
+### 8.6 本地验证与隔离边界
+
+- `python3 -m unittest discover -s tests -v`：220 通过（Step 8 未改 Python 行为）；
+- `cd dsh-plugin && npm run typecheck`：通过；
+- `node --test tests/*.test.ts`：112 通过（新增 `tests/security.test.ts` 19 个）；
+- `npm run evidence:loader`：在独立隔离实例中新增 `AEH_INJECTION_REJECTED` 证据；
+- 隔离边界与 Step 4–7 相同：只在本目录 `dsh-plugin/` 安装依赖（`.npm-cache`），
+  不读写 `~/.dsh/`，不改参考克隆或 npx dsh，不把插件加载进本任务会话；
+- **未完成**：跨进程/跨副本分布式限流、按工具/租户差异化配额、locale 展示、
+  对抗性注入（同形字/编码混淆/多轮外泄）的持续红队，以及真实身份/同意网关。
+
 ## 目录结构
 
 ```text
@@ -515,10 +576,11 @@ aeh/
   eval_cli.py          # Step 5 可运行评测入口（python -m aeh.eval_cli）
   evolution.py         # Step 6 受控自进化骨架（规范 §27，宿主侧）
   demo.py              # Step 2 命令行入口（python -m aeh.demo）
-dsh-plugin/            # Step 3+4+5+6+7 TypeScript dsh / Cordis 教育插件
+dsh-plugin/            # Step 3+4+5+6+7+8 TypeScript dsh / Cordis 教育插件
   src/index.ts         # Cordis 插件入口（name / inject / Config / apply）
   src/dsh.ts           # 真实 cordis / dsh-tools 薄 authoring 适配层
-  src/config.ts        # Step 7 Schemastery 配置校验（fail loud）
+  src/config.ts        # Step 7 Schemastery 配置校验（fail loud）+ Step 8 security 块
+  src/security.ts      # Step 8 注入/越权/payload/限流/脱敏守卫
   src/output-schemas.ts # Step 7 六个工具的闭合输出 schema
   src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包
   src/host/            # 内存同意 / HostContext / 孪生 / 交付适配器
@@ -527,13 +589,13 @@ dsh-plugin/            # Step 3+4+5+6+7 TypeScript dsh / Cordis 教育插件
   src/host/session-state.ts     # Step 7 session/agent 级假设快照（TTL/隔离/清理）
   src/host/audit-log.ts         # Step 7 追加式脱敏审计与伪名指标
   src/report.ts        # Step 5 聚合报告边界（对应 aeh/report.py）
-  src/tools.ts         # 六个教育工具
+  src/tools.ts         # 六个教育工具 + Step 8 安全/审计包装
   src/permissions.ts   # 默认最小权限
   scripts/             # 隔离 loader 加载证据脚本
-  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7
+  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7 + Step 8
   package.json         # 真实 @deepseek-ai/* 依赖（只装在本目录）
 docs/
-  dsh-integration.md   # Step 3+4+5+6+7 映射、权限与完成情况
+  dsh-integration.md   # Step 3+4+5+6+7+8 映射、权限与完成情况
   evaluation-report-template.md  # Step 5 评测报告模板
 tests/                 # Python 标准库 unittest 测试
 .github/workflows/ci.yml
@@ -583,7 +645,7 @@ Step 6 的受控自进化骨架（合成数据，离线，纯内存）：
 python3 -m unittest discover -s tests -p 'test_evolution.py' -v
 ```
 
-Step 3+4+5+6 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
+Step 3+4+5+6+7+8 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
 依赖，只安装在 `dsh-plugin/` 内（独立缓存），不会加载进运行中的 dsh，也不读写
 `~/.dsh/`：
 
@@ -595,9 +657,10 @@ node --test tests/*.test.ts
 npm run evidence:loader    # 隔离 Cordis loader 加载/卸载证据
 ```
 
-Node 测试分六层：13 个离线不变量测试、12 个宿主适配器测试、8 个报告边界测试、
-8 个文件事件存储测试、22 个宿主侧自进化测试、7 个真实 Cordis/dsh 运行时契约测试，
-全部使用合成引用，共 70 个。Python 侧共 220 个测试。
+Node 测试分八层：13 个离线不变量测试、12 个宿主适配器测试、8 个报告边界测试、
+8 个文件事件存储测试、22 个宿主侧自进化测试、7 个真实 Cordis/dsh 运行时契约测试、
+23 个 Step 7 加固测试、19 个 Step 8 安全测试，全部使用合成引用，共 112 个。
+Python 侧共 220 个测试。
 
 ## CI
 
@@ -649,9 +712,9 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
   服务、生产灰度/监控接入、跨服务防篡改审计与保留期、真实部署/回滚通道；Step 6
   只交付宿主侧内存/合成骨架。
 - 真实学生迁移与延迟保持的校准；当前记忆参数为示意值，小样本仍保留高不确定性。
-- 速率限制、locale 与跨进程并发控制；Step 7 已完成 Schemastery `Config` 校验与六个
-  工具的闭合输出 schema，但审计仍是内存 append-only、会话快照仍是内存存储，且
-  提示注入/越权/超大 payload 的防护留待 Step 8。
+- 速率限制、locale 与跨进程并发控制：Step 8 已在工具入口实现单实例内存限流
+  （按 session 与 `studentRef`）、提示注入/越权/超大 payload 拒绝与错误审计脱敏；
+  跨进程/跨副本分布式限流、按工具/租户差异化配额、locale 展示与对抗性注入红队仍未做。
 
 ## 安全约定
 
@@ -672,7 +735,7 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
   权限、隐私、真实-模拟隔离等受保护不变量，不能写生产文件；审批默认拒绝、灰度仅
   合成会话比例、带熔断与回滚，全链路追加式审计不含原始学生数据。审批与回滚只在
   宿主侧调用，不新增模型工具。
-- Step 3+4+5+6+7 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
+- Step 3+4+5+6+7+8 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
   凭据、文件或网络权限，observed 孪生写、干预交付与自进化审批/回滚不属于模型工具。
   隔离测试只使用合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
 - Step 7 配置非法即 fail loud（不静默回退默认值）；六个工具输出 schema 顶层闭合，
@@ -680,3 +743,10 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
   TTL 与清理且不写长期孪生；审计 append-only、只收标量与原因码、递归拒绝原始学生
   数据键，学生/租户维度只以盐化伪名出现在指标中（伪名化非匿名化，salt 需与身份数据
   同级的密钥存储保管）。
+- Step 8 在每个工具 body 前运行 `SecurityGuard`：提示注入文本（改门禁/权限/受众/
+  审批、角色冒充、套取密钥）与冒充宿主决策对象的参数键 fail-closed 并记入审计
+  （只记原因码，不记原文）；超长字符串/数组/键数/深度/字节与循环引用返回
+  `AEH_PAYLOAD_TOO_LARGE`；按 session 与 `studentRef` 的固定窗口限流返回
+  `AEH_RATE_LIMITED` 且不影响其他会话；工具错误去掉绝对路径、`file://` URL 与密钥
+  样式 token 后才离开 body。`SecurityError` 继承 dsh `HarnessError`，真实运行时
+  以稳定 `info.code` 暴露。限流为单插件实例内存实现，跨进程分布式限流未完成。
