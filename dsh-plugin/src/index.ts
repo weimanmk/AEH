@@ -101,3 +101,35 @@ export {
 export { HypothesisSet } from './core/hypothesis.ts'
 export { selectProbe } from './core/diagnosis.ts'
 export { validatePackage, deliver } from './core/exercise.ts'
+
+export {
+  ApprovalLedger,
+  DeliveryDeniedError,
+  HostDeliveryAdapter,
+  type HostApprovalRecord,
+  type HostDeliveryReceipt,
+} from './host/delivery.ts'
+export {
+  CONSENT_SCOPES,
+  ConsentError,
+  ConsentSnapshot,
+  type ConsentGrant,
+  type ConsentScope,
+  type ConsentSnapshotView,
+} from './host/consent.ts'
+export {
+  HostAuthorizationError,
+  MemoryHostContext,
+  type AuthorizedSessionSnapshot,
+  type MemoryHostContextOptions,
+} from './host/host-context.ts'
+export {
+  IdempotencyConflictError,
+  MemoryHostTwin,
+  type AttestationVerifier,
+  type HostAuditEntry,
+  type MemoryHostTwinOptions,
+  type SourceAttestation,
+  type TwinAppendResult,
+  type TwinRollbackResult,
+} from './host/twin-adapter.ts'

@@ -31,6 +31,17 @@ const stringArray = { type: 'array', items: { type: 'string' } } as const
 const numberRecord = { type: 'object', additionalProperties: true } as const
 const jsonObject = { type: 'object', additionalProperties: true } as const
 
+/**
+ * Cooperative tool-call budget declared to the host timeout policy.
+ *
+ * These tools are deterministic, in-memory computations, so the budget is a
+ * guardrail against a wedged host call rather than a normal latency path. Every
+ * tool observes `exec.signal` at entry, which is what makes the declaration
+ * honest: dsh's timeout wrapper maps its own expiry to `TOOL_TIMEOUT` only for
+ * tools that promise to forward cancellation.
+ */
+export const AEH_TOOL_TIMEOUT_MS = 2000
+
 const hypothesisRecordSchema = {
   type: 'object',
   additionalProperties: false,
@@ -196,6 +207,7 @@ export function createEducationTools(
   return [
     defineTool({
       name: 'aeh_check_curriculum',
+      timeoutMs: AEH_TOOL_TIMEOUT_MS,
       description:
         'Fail-closed curriculum gate for one host-catalog item id, authorised student reference, and mode (preview/learn/review). Returns allowed plus machine-readable refusal reasons. It never delivers the item; missing annotations, low confidence, untaught KCs, future methods, an unknown mode, or an exhausted load budget reject the candidate. The model cannot override the gate.',
       parameters: {
@@ -230,6 +242,7 @@ export function createEducationTools(
 
     defineTool({
       name: 'aeh_update_hypotheses',
+      timeoutMs: AEH_TOOL_TIMEOUT_MS,
       description:
         'Apply one session-scoped virtual-student hypothesis operation (snapshot, spawn, split, merge, prune, or Bayesian reweight with noise) to a supplied snapshot and return the normalised next snapshot plus weights. Pure state: it writes no long-term evidence, no database, and no observed twin state. The unknown bucket is always represented.',
       parameters: {
@@ -330,6 +343,7 @@ export function createEducationTools(
 
     defineTool({
       name: 'aeh_select_probe',
+      timeoutMs: AEH_TOOL_TIMEOUT_MS,
       description:
         'Choose the best diagnostic probe for a session. Every candidate carries only a host-catalog item id; the tool resolves trusted annotations and re-runs the fail-closed gate, so a model-supplied item annotation or "allowed" flag is not accepted. Score = information gain + teaching value - time/risk/cognitive-load penalties. Returns null when the student skips or no candidate is allowed. Nothing is asked or persisted.',
       parameters: {
@@ -394,6 +408,7 @@ export function createEducationTools(
 
     defineTool({
       name: 'aeh_schedule_review',
+      timeoutMs: AEH_TOOL_TIMEOUT_MS,
       description:
         'Apply FSRS-style observations to a supplied memory state and return the updated stability/difficulty, next review interval for the target retention, and counts. Reading an explanation has zero retrieval weight; hint-assisted success is weaker than an independent unhinted first attempt. Pure computation: no database or twin write.',
       parameters: {
@@ -426,6 +441,7 @@ export function createEducationTools(
 
     defineTool({
       name: 'aeh_prepare_intervention',
+      timeoutMs: AEH_TOOL_TIMEOUT_MS,
       description:
         'Validate and prepare an intervention package: training items, hint ladder, feedback templates, explanation resources, independent unseen transfer items, completion criteria, and required KCs. Resolves every training/transfer id from the host catalog, then checks structure, training/transfer isolation, gate admission for every item, and seen-before transfer leakage. Returns deliveryEligible but never delivers; a host must obtain approval and re-check consent before delivery.',
       parameters: {
