@@ -288,14 +288,26 @@ export class AehAuditLog {
     readonly studentRef?: string
     readonly tenantRef?: string
     readonly reasonCode?: string
+    /**
+     * Step 8: additional machine-readable reason codes (for example the
+     * injection/oversize/rate-limit categories). Never the raw argument text.
+     */
+    readonly reasonCodes?: readonly string[]
+    /** Optional scalar-only detail, subject to the raw-data key rejection. */
+    readonly detail?: Readonly<Record<string, unknown>>
   }): AuditRecord {
+    const reasonCodes = [
+      ...(input.reasonCode === undefined ? [] : [input.reasonCode]),
+      ...(input.reasonCodes ?? []),
+    ]
     return this.append({
       kind: 'tool.call',
       action: input.tool,
       outcome: input.outcome,
-      reasonCodes: input.reasonCode === undefined ? [] : [input.reasonCode],
+      reasonCodes,
       studentRef: input.studentRef,
       tenantRef: input.tenantRef,
+      ...(input.detail === undefined ? {} : { detail: input.detail }),
     })
   }
 
