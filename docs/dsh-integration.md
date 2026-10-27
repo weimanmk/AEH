@@ -1,4 +1,4 @@
-# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9）
+# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9 + Step 10）
 
 状态：**已用真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` 替换离线适配层，
 并在一个独立隔离的 Cordis loader 实例中完成加载/卸载与工具契约测试**。Step 5 在
@@ -16,9 +16,13 @@ Schemastery 定义并导出 Cordis `Config`（非法配置在 `apply` 前 fail l
 越权/特权参数、超大 payload 与超限速率一律 fail-closed 并记入追加式审计，
 错误信息与审计日志脱敏。Step 9 增加版本化 KC 图、带审核记录的题库与本地内存 RAG
 检索接口，并把“检索命中必须再过课程门禁 + 前置闭包”做成宿主/服务层边界；检索只返回
-opaque itemId 与标注摘要，不返回题目原文。仍**未**接入真实学生数据，也**未**加载进
-任何正在运行的 dsh 会话。本文说明 Step 1 核心如何映射为教育插件与工具、默认权限
-边界，以及真正接入 dsh 运行时还需要补什么。
+opaque itemId 与标注摘要，不返回题目原文。Step 10 增加习题演化引擎（五种受控算子、
+候选带来源/声明式变更/受影响 KC、先过 fail-closed 门禁再进隔离沙箱、候选池要求
+“沙箱合格 + 题库审核通过”）与动态模拟实验室（独立会话状态与独立假设快照、只收
+simulated 来源的事件日志、`observedWrites` 恒为 0、配置与结果内容寻址可复现、模拟
+收益与真实迁移分通道报告）。仍**未**接入真实学生数据，也**未**加载进任何正在运行的
+dsh 会话。本文说明 Step 1 核心如何映射为教育插件与工具、默认权限边界，以及真正接入
+dsh 运行时还需要补什么。
 
 Step 6 不修改 `aeh/` 的 Step 1/2/5 行为（只新增 `aeh/evolution.py`）与插件工具
 目录（仍是六个模型可调用工具），不接入真实学生数据，不复制
@@ -27,7 +31,10 @@ Step 6 不修改 `aeh/` 的 Step 1/2/5 行为（只新增 `aeh/evolution.py`）�
 不修改 `~/workspace/deepseek-harness` 克隆或 npx 安装的 dsh。`FileEventStore` 的测试
 文件只写在 `os.tmpdir()` 下的临时合成目录，默认 `enabled: false`。Step 8 同样只在
 `dsh-plugin/` 与文档内工作，安全测试全部使用合成引用，未改动 `aeh/` 的 Step 1–7
-行为，也未改动运行用 dsh。
+行为，也未改动运行用 dsh。Step 10 同样只在 `aeh/`、`dsh-plugin/`、`tests/` 与文档内
+工作：演化只重采样结构化合成标注与受控参数，不生成题干/答案/提示/图片文本；模拟
+实验室只在内存中对合成行为模型采样，事件日志只接受 simulated 来源；未改动运行用 dsh，
+未接入真实学生数据。
 
 ## 1. 目标与非目标
 
@@ -81,6 +88,7 @@ dsh-plugin/
     core/
       curriculum-gate.ts    # 对应 aeh/curriculum_gate.py
       curriculum-graph.ts   # Step 9：对应 aeh/curriculum_graph.py（图/题库/本地 RAG）
+      exercise-evolution.ts # Step 10：对应 aeh/exercise_evolution.py（演化 + 模拟实验室）
       twin.ts               # 对应 aeh/twin.py（宿主侧，不暴露写工具）
       memory.ts             # 对应 aeh/memory.py
       hypothesis.ts         # 对应 aeh/hypothesis.py
@@ -96,6 +104,7 @@ dsh-plugin/
     step7.test.ts           # Step 7：23 个配置/输出 schema/会话/审计测试
     security.test.ts        # Step 8：19 个注入/越权/payload/限流/脱敏测试
     curriculum-graph.test.ts # Step 9：19 个图/题库/RAG/检索后门禁测试
+    exercise-evolution.test.ts # Step 10：21 个演化/模拟/隔离/共享 fixture 测试
 ```
 
 `src/dsh.ts` 现在直接导入真实 `@deepseek-ai/cordis` 与
@@ -284,6 +293,43 @@ Python `aeh/curriculum_graph.py` 与 TypeScript `core/curriculum-graph.ts` 是�
   `toHostBinding()` 显式转发这两个方法，适配 Cordis loader 只复制数据属性的行为。
 - **边界**：没有新增模型可调用工具；模型不能直接传图、题库或标注，也不能把检索
   hit 直接变成交付。插件工具目录仍是六个。
+
+### 3.9 习题演化与模拟实验室（Step 10）
+
+Python `aeh/exercise_evolution.py` 与 TypeScript `core/exercise-evolution.ts` 是同一
+行为的双实现，共享 `tests/fixtures/exercise_evolution_step10.json` 的合成 fixture：
+
+- **受控算子**：`numeric`（同一 KC/年级带内重采样数值参数）、`context`（替换表层
+  情境、结构不变）、`distractor`（仅 `multiple_choice`，重生干扰项、正确项与所需推理
+  不变）、`difficulty`（[0,1] 内调难度并按比例缩放时长）、`diagnostic`（指向误区，
+  使两个假设产生不同可观察步）。算子只改结构化标注与受控参数，不生成题干文本。
+- **候选溯源**：`EvolutionCandidate` 带来源 item/版本、算子、声明式 `changes`、受
+  影响 KC、seed 与生成器版本；`candidate_id`/`proposed_item_id` 由来源 + 算子 + seed
+  确定性生成，annotation `source` 标为 `synthetic.evolved.<operator>`、`exposureCount`
+  归零，并冻结为内容寻址哈希。Python/TS 的候选哈希在共享 fixture 上完全一致。
+- **fail-closed 校验**：`ExerciseEvolutionEngine.validate()` 复用课程门禁 `allow()`
+  并检查缺失标注、缺失图与传递前置闭包；未授/超前 KC、低进度置信度、缺失前置、
+  未知 KC、标注不完整或图缺失都使候选无效，**不会**进入沙箱。
+- **隔离沙箱**：`EvolutionSandbox.evaluate()` 在通过门禁后用独立假设快照跑模拟，
+  产出 `simulatedBenefit`（`isCausalEvidence=false`）与独立 `realTransfer` 通道；没有
+  真实冻结迁移集与独立观测时永远是 `promotion_blocked:real_transfer_evidence_missing`。
+- **候选池**：`EvolutionCandidatePool.admit()` 要求候选可交付、item-bank 记录为同一
+  `proposedItemId` 且已 `approved`、`observedWrites == 0`；否则抛 `CandidatePoolError`。
+  演化**不能绕过**课程门禁或题库审核。
+- **模拟隔离**：`SimulationSession` 从快照构造私有 `HypothesisSet`，会话内 reweight
+  不改动源假设；`SimulationEventLog` 只接受 `simulated`/`virtual_student`/`simulation`
+  来源，任何真实来源抛 `SimulationIsolationError`；`observedWrites` 恒为 0，
+  `SimulationResult.realTransfer` 恒为 `null`。
+- **可复现**：`SimulationConfig`（seed/版本/场景/阶段计划/maxSteps）与
+  `HypothesisSnapshot` 都做 canonical JSON 内容寻址；结果指纹只对整数微单位（概率、
+  正确率、增益、置信区间）与逐步 `phase/item/hypothesis/correct` 计算。两侧共享
+  `mulberry32`、FNV-1a 32、`jsRound`、`round4`、`quantizeMicros`，在相同 seed/配置/
+  快照上得到逐字节一致的结果指纹与会话 id。
+- **真实迁移通道**：TS 侧没有评测模块，故 `exercise-evolution.ts` 内联实现冻结迁移集
+  与可信来源（`student`/`teacher`/`trusted_grader`/`assessment`）校验，只接受独立
+  作答的 unseen 迁移题，结果仍为描述性（`causalClaimSupported=false`）。
+- **边界**：没有新增模型可调用工具；模型不能直接触发生成器、沙箱或候选池。插件工具
+  目录仍是六个。
 
 ## 4. Cordis 插件结构
 
@@ -650,6 +696,22 @@ Step 8 的 TypeScript 测试为 `tests/security.test.ts`（19），步骤完成�
 | 宿主解析仍走 HostContext | **已完成（隔离实例）** | `HostContext.resolveGraph()`/`retrieveItems()` 可选；`MemoryHostContext` 注入宿主 `graph`/`itemBank`，同意撤回后全部不可读；`toHostBinding()` 保留闭包。测试覆盖服务层检索与 loader copy 路径。**残留**：生产身份/同意网关与真实多租户会话 |
 | Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 242 通过（新增 22）；Node 131 通过（新增 19）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
 
+### Step 10 完成情况（习题演化与动态模拟实验室，规范 §9、§11）
+
+状态图例同上：**已完成** = 在本目录合成数据/隔离实例上实现并有测试；**部分** = 最小
+模型完成，生产项未完成。Step 10 不新增模型工具（仍是六个），不改运行用 dsh，不接入
+真实学生数据，演化不生成题干/答案/提示/图片文本。
+
+| Step 10 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| 五种演化算子（数值/情境/干扰项/难度/诊断指向性）且候选带来源/变更/受影响 KC | **已完成（合成数据）** | `aeh/exercise_evolution.py` 与 `src/core/exercise-evolution.ts` 的 `applyOperator()`：`numeric`/`context`/`distractor`/`difficulty`/`diagnostic`，只改结构化标注与受控参数；`distractor` 仅限 `multiple_choice`。候选 `provenance` 含来源 item/版本、`changes`、`affectedKcs`、seed、生成器版本；`candidate_id`/`proposed_item_id` 确定性生成。**残留**：真实内容库/题型模板、真实题干/答案/图片生成与版权/安全审核 |
+| 每个演化候选先过课程门禁与前置闭包，再进隔离沙箱 | **已完成** | `ExerciseEvolutionEngine.validate()` 复用 `allow()` 并检查缺失标注、缺失图与传递前置闭包；未授/超前 KC、低进度置信度、缺失前置、未知 KC、标注不完整、缺图全部 fail-closed，门禁拒绝的候选 `sandboxVerdict=null`。**残留**：真实教师审核工作流接入 |
+| 候选进入候选池不能绕过沙箱筛查或题库审核 | **已完成** | `EvolutionCandidatePool.admit()` 要求沙箱筛查通过、item-bank 同一 `proposed_item_id` 且 `reviewStatus="approved"`、`observedWrites==0`；否则抛 `CandidatePoolError`。测试覆盖“未批准拒绝”“门禁拒绝不产生沙箱结果”。**残留**：生产题库服务与审批后台 |
+| 模拟会话隔离：独立状态、独立假设快照、事件不写 observed | **已完成** | `SimulationSession` 从快照构造私有 `HypothesisSet`（reweight 不改源假设）；`SimulationEventLog` 只接受 `simulated`/`virtual_student`/`simulation`，真实来源抛 `SimulationIsolationError`；`observedWrites` 恒为 0，`SimulationResult.realTransfer` 恒为 `null`。**残留**：跨进程模拟调度与持久化 |
+| 实验配置与结果可用 seed/版本/摘要复现 | **已完成** | `SimulationConfig` 与 `HypothesisSnapshot` 做 canonical JSON 内容寻址；结果指纹只对整数微单位与逐步 `phase/item/hypothesis/correct` 计算；共享 `mulberry32`/FNV-1a 32/`jsRound`/`round4`/`quantizeMicros`。共享 fixture 上 Python/TS 指纹、会话 id、逐步结果逐字节一致。**残留**：真实硬件/分布式复现环境 |
+| 模拟收益与真实迁移分开报告，模拟不能自证真实效果 | **已完成** | `simulatedBenefit.is_causal_evidence=false`；真实迁移只来自冻结 unseen 迁移集与可信来源，且 `causalClaimSupported=false`、`promotionReady` 需真实迁移证据。TS 侧内联实现真实通道（无 TS 评测模块）。**残留**：真实对照/延迟保持迁移实验与真实学生行为校准 |
+| Python/TS 测试与 `tsc --noEmit` | **已完成** | Python 290 通过（新增 48）；Node 152 通过（新增 21）；`npm run typecheck` 通过；`npm run evidence:loader` 仍在独立隔离实例成功（工具目录仍为六个）。**残留**：无 |
+
 ### P1：上线前应补齐
 
 1. **配置 schema**：**Step 7 已完成**（`src/config.ts` + 入口导出的 Cordis `Config`；
@@ -700,11 +762,11 @@ Step 8 的 TypeScript 测试为 `tests/security.test.ts`（19），步骤完成�
 cd dsh-plugin
 npm install --cache .npm-cache
 npm run typecheck                      # tsc --noEmit
-node --test tests/*.test.ts            # 131 个测试
+node --test tests/*.test.ts            # 152 个测试
 npm run evidence:loader                # 隔离 loader 加载/卸载证据
 ```
 
-Python 核心测试（Step 9 后共 242 个；Step 9 新增 22 个）：
+Python 核心测试（Step 10 后共 290 个；Step 9 新增 22 个，Step 10 新增 48 个）：
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -750,9 +812,21 @@ Node 测试分层：
   图拒绝、共享 fixture 哈希/顺序/分数/候选/拒绝原因、MemoryHostContext 图/题库解析与
   同意撤回、`toHostBinding()` 闭包、未知命中拒绝）。
 
+- `tests/exercise-evolution.test.ts`：21 个 Step 10 测试（RNG/哈希/舍入原语、五种算子
+  与 provenance、门禁/前置/缺失图 fail-closed、沙箱独立通道与真实迁移 gating、候选池
+  必须“沙箱合格 + 审核通过”、门禁拒绝不产生沙箱结果、模拟事件只收 simulated 来源、
+  假设快照隔离、相同 seed 复现与不同 seed 区分、非法阶段/uint32 seed 拒绝、共享 fixture
+  的候选哈希与模拟指纹逐字节一致）。
+
 Python 侧新增 `tests/test_curriculum_graph.py`（22 个）：图闭包/拓扑序/环与非法图
 拒绝、proposed 边、版本存储与 diff、题库版本/审核/缺失标注、检索过滤、检索后门禁与
 前置闭包、未知 KC/缺失图、共享 fixture 一致性。
+
+Python 侧新增 `tests/test_exercise_evolution.py`（48 个）：RNG/FNV/舍入与微单位原语、
+五种算子的行为与 provenance、门禁/前置/低置信度/缺失标注/缺失图 fail-closed、沙箱
+分通道与真实迁移 gating、候选池准入必须“沙箱合格 + 题库审核通过”、模拟事件来源
+白名单与 `observedWrites==0`、独立假设快照、配置与结果指纹复现/区分、非法配置拒绝、
+共享 fixture 一致性。
 
 Python 侧新增 `tests/test_evaluation.py`（17 个）：冻结集摘要与分片隔离、迁移题
 unseen、模拟不能进迁移通道、真实迁移只接受可信来源、模拟数据不能重标为真实证据、
@@ -791,6 +865,10 @@ Python 侧新增 `tests/test_evolution.py`（35 个）：候选契约与受保�
   编码重排，没有生产图数据库/题库服务、真实教师审核身份与权限、真实题目内容与
   版权/安全审核、跨租户图隔离、图变更审批/回滚，也没有把检索候选接入真实交付
   UI/LMS。Step 9 只提供可测试的结构与门禁边界，不宣称生产可用。
+- 习题演化与模拟实验室仍是合成骨架：没有真实题目文本/答案/图片生成与安全审核、
+  真实内容库/题型模板、真实学生行为校准（当前模拟是合成行为模型）、真实对照/延迟
+  保持迁移实验、跨进程模拟调度与持久化，也没有把演化候选接入真实交付/UI。Step 10
+  只提供可测试的演化/隔离/可复现边界，不宣称生产可用。
 - FSRS 参数为示意值，不是生产校准参数。
 - `Config` 已在 Step 7 改为 Schemastery 校验并导出为 Cordis `Config`；残留真实配置
   中心的变更审批/回滚与热重载审计。
