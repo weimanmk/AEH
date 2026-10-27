@@ -21,6 +21,7 @@ import type {
   AehEducationService,
   InterventionPackageRefInput,
 } from '../service.ts'
+import type { AehAuditLog } from './audit-log.ts'
 import type { ConsentSnapshot } from './consent.ts'
 import type { MemoryHostContext } from './host-context.ts'
 
@@ -70,6 +71,16 @@ function requireTimestamp(value: string, field: string): string {
   return value
 }
 
+function errorCode(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const code = (error as { code?: unknown }).code
+    if (typeof code === 'string' && code.length > 0) return code
+    const name = (error as { name?: unknown }).name
+    if (typeof name === 'string' && name.length > 0) return name
+  }
+  return 'AEH_DELIVERY_ERROR'
+}
+
 function freezeApproval(record: HostApprovalRecord): HostApprovalRecord {
   if (record.scope !== 'intervention:deliver') {
     throw new DeliveryDeniedError('approval must use intervention:deliver scope')
@@ -93,14 +104,37 @@ function freezeApproval(record: HostApprovalRecord): HostApprovalRecord {
 }
 
 /** Append-only, idempotent approval ledger. */
+export interface ApprovalLedgerOptions {
+  /** Optional append-only audit sink for host approvals. */
+  readonly audit?: AehAuditLog
+  /** Optional tenant dimension used only for the pseudonymous audit key. */
+  readonly tenantRef?: string
+}
+
 export class ApprovalLedger {
   private readonly records = new Map<string, HostApprovalRecord>()
+  private readonly audit: AehAuditLog | undefined
+  private readonly tenantRef: string | undefined
+
+  constructor(options: ApprovalLedgerOptions = {}) {
+    this.audit = options.audit
+    this.tenantRef = options.tenantRef
+  }
 
   append(record: HostApprovalRecord): HostApprovalRecord {
     const frozen = freezeApproval(record)
     const existing = this.records.get(frozen.approvalId)
     if (existing !== undefined) {
       if (JSON.stringify(existing) !== JSON.stringify(frozen)) {
+        this.audit?.append({
+          kind: 'approval.record',
+          action: 'host.approval',
+          outcome: 'rejected',
+          reasonCodes: ['approval_id_conflict'],
+          studentRef: frozen.studentRef,
+          tenantRef: this.tenantRef,
+          detail: { approvalId: frozen.approvalId },
+        })
         throw new DeliveryDeniedError(
           `approval id ${JSON.stringify(frozen.approvalId)} was reused with different content`,
         )
@@ -108,6 +142,13 @@ export class ApprovalLedger {
       return existing
     }
     this.records.set(frozen.approvalId, frozen)
+    this.audit?.recordApproval({
+      approvalId: frozen.approvalId,
+      packageId: frozen.packageId,
+      decision: frozen.decision,
+      studentRef: frozen.studentRef,
+      tenantRef: this.tenantRef,
+    })
     return frozen
   }
 
@@ -126,6 +167,8 @@ export interface HostDeliveryAdapterOptions {
   readonly approvals: ApprovalLedger
   readonly consent: ConsentSnapshot
   readonly now?: () => string
+  /** Optional append-only audit sink for delivery receipts and denials. */
+  readonly audit?: AehAuditLog
 }
 
 /** Re-check session, consent, approval, and gate before returning a receipt. */
@@ -135,6 +178,7 @@ export class HostDeliveryAdapter {
   private readonly approvals: ApprovalLedger
   private readonly consent: ConsentSnapshot
   private readonly now: () => string
+  private readonly audit: AehAuditLog | undefined
   private readonly receipts = new Map<string, HostDeliveryReceipt>()
 
   constructor(options: HostDeliveryAdapterOptions) {
@@ -143,74 +187,100 @@ export class HostDeliveryAdapter {
     this.approvals = options.approvals
     this.consent = options.consent
     this.now = options.now ?? (() => new Date().toISOString())
+    this.audit = options.audit
   }
 
   /**
    * Revalidate and return an idempotent in-memory receipt.
    *
    * This method never contacts a student device, LMS, database, or network.
-   * Repeating the same approval id returns the same receipt.
+   * Repeating the same approval id returns the same receipt (and does not emit
+   * a second audit receipt).
    */
   deliver(
     input: InterventionPackageRefInput,
     approvalId: string,
   ): HostDeliveryReceipt {
-    this.host.assertSession(this.host.session.sessionId)
-    this.consent.require('intervention:deliver')
+    const tenantRef = this.host.tenantRef
+    try {
+      this.host.assertSession(this.host.session.sessionId)
+      this.consent.require('intervention:deliver')
 
-    const existing = this.receipts.get(approvalId)
-    if (existing !== undefined) {
-      if (existing.packageId !== input.packageId) {
-        throw new DeliveryDeniedError('approval was already used for another package')
+      const existing = this.receipts.get(approvalId)
+      if (existing !== undefined) {
+        if (existing.packageId !== input.packageId) {
+          throw new DeliveryDeniedError('approval was already used for another package')
+        }
+        return existing
       }
-      return existing
-    }
 
-    const approval = this.approvals.get(approvalId)
-    if (approval === undefined) {
-      throw new DeliveryDeniedError('approval record not found')
-    }
-    if (approval.decision !== 'approved') {
-      throw new DeliveryDeniedError('approval record is not approved')
-    }
-    if (approval.packageId !== input.packageId) {
-      throw new DeliveryDeniedError('approval does not name this package')
-    }
-    if (approval.studentRef !== this.host.session.studentRef) {
-      throw new DeliveryDeniedError('approval does not name this student')
-    }
-    const now = this.now()
-    if (approval.expiresAt !== null && approval.expiresAt !== undefined) {
-      if (Date.parse(approval.expiresAt) <= Date.parse(now)) {
-        throw new DeliveryDeniedError('approval has expired')
+      const approval = this.approvals.get(approvalId)
+      if (approval === undefined) {
+        throw new DeliveryDeniedError('approval record not found')
       }
-    }
+      if (approval.decision !== 'approved') {
+        throw new DeliveryDeniedError('approval record is not approved')
+      }
+      if (approval.packageId !== input.packageId) {
+        throw new DeliveryDeniedError('approval does not name this package')
+      }
+      if (approval.studentRef !== this.host.session.studentRef) {
+        throw new DeliveryDeniedError('approval does not name this student')
+      }
+      const now = this.now()
+      if (approval.expiresAt !== null && approval.expiresAt !== undefined) {
+        if (Date.parse(approval.expiresAt) <= Date.parse(now)) {
+          throw new DeliveryDeniedError('approval has expired')
+        }
+      }
 
-    const prepared = this.service.prepareInterventionFor(
-      input,
-      this.host.session.studentRef,
-      input.schoolMode,
-    )
-    if (!prepared.valid) {
-      throw new DeliveryDeniedError(
-        `package failed delivery-time gate: ${prepared.reasons.join(', ')}`,
+      const prepared = this.service.prepareInterventionFor(
+        input,
+        this.host.session.studentRef,
+        input.schoolMode,
       )
-    }
+      if (!prepared.valid) {
+        throw new DeliveryDeniedError(
+          `package failed delivery-time gate: ${prepared.reasons.join(', ')}`,
+        )
+      }
 
-    const ids = [...input.trainingItemIds, ...(input.transferItemIds ?? [])]
-    const receipt: HostDeliveryReceipt = Object.freeze({
-      deliveryId: `delivery_${approvalId}`,
-      approvalId,
-      packageId: input.packageId,
-      studentRef: this.host.session.studentRef,
-      deliveredAt: now,
-      itemIds: Object.freeze(ids),
-      mode: input.schoolMode ?? 'learn',
-      channel: 'host-memory-test',
-      externalEffect: false,
-    })
-    this.receipts.set(approvalId, receipt)
-    return receipt
+      const ids = [...input.trainingItemIds, ...(input.transferItemIds ?? [])]
+      const receipt: HostDeliveryReceipt = Object.freeze({
+        deliveryId: `delivery_${approvalId}`,
+        approvalId,
+        packageId: input.packageId,
+        studentRef: this.host.session.studentRef,
+        deliveredAt: now,
+        itemIds: Object.freeze(ids),
+        mode: input.schoolMode ?? 'learn',
+        channel: 'host-memory-test',
+        externalEffect: false,
+      })
+      this.receipts.set(approvalId, receipt)
+      this.audit?.recordDeliveryReceipt({
+        deliveryId: receipt.deliveryId,
+        approvalId,
+        packageId: receipt.packageId,
+        outcome: 'accepted',
+        itemCount: receipt.itemIds.length,
+        channel: receipt.channel,
+        studentRef: receipt.studentRef,
+        tenantRef,
+      })
+      return receipt
+    } catch (error) {
+      this.audit?.append({
+        kind: 'delivery.receipt',
+        action: 'host.delivery',
+        outcome: 'rejected',
+        reasonCodes: [errorCode(error)],
+        studentRef: this.host.session.studentRef,
+        tenantRef,
+        detail: { approvalId, packageId: input.packageId },
+      })
+      throw error
+    }
   }
 
   receiptsFor(): readonly HostDeliveryReceipt[] {

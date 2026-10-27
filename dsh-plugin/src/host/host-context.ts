@@ -117,6 +117,11 @@ export class MemoryHostContext implements HostContext {
       : undefined
   }
 
+  /** Host-issued opaque tenant reference for non-re-identifiable audit metrics. */
+  get tenantRef(): string {
+    return this.session.tenantId
+  }
+
   /** True only for the exact session this adapter was constructed for. */
   matchesSession(sessionId: string): boolean {
     return sessionId === this.session.sessionId
@@ -165,6 +170,9 @@ export class MemoryHostContext implements HostContext {
     return Object.freeze({
       get authorizedStudentRef(): string | undefined {
         return host.authorizedStudentRef
+      },
+      get tenantRef(): string | undefined {
+        return host.tenantRef
       },
       resolveProgress(studentRef: string): LearnerProgress | undefined {
         return host.resolveProgress(studentRef)

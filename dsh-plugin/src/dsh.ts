@@ -38,6 +38,14 @@ export type { ToolRunContext } from '@deepseek-ai/dsh-tools'
  */
 export interface AehToolExec {
   readonly signal?: AbortSignal
+  /**
+   * The dsh agent on whose behalf the call runs. dsh sets this on
+   * `ToolRunContext`; direct unit-test invocations may omit it, in which case
+   * session-scoped features fail closed instead of inventing a scope.
+   */
+  readonly agent?: {
+    readonly id?: string
+  }
 }
 
 /**
