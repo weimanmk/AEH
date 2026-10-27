@@ -1,0 +1,337 @@
+{
+  "config": {
+    "bootstrapResamples": 24,
+    "confidence": 0.95,
+    "dataVersion": "synthetic.fsrs.calibration.v1",
+    "minObservations": 20,
+    "minSequences": 3,
+    "parameterVersion": "fsrs_calibrated_aeh_v1",
+    "ridge": 0.002,
+    "rounds": 4,
+    "seed": 20240711,
+    "stepFraction": 0.25
+  },
+  "dataset": {
+    "dataVersion": "synthetic.fsrs.calibration.v1",
+    "datasetId": "dataset.synthetic.fsrs.fixture",
+    "generatorVersion": "aeh.fsrs.synthetic.v1",
+    "scope": "synthetic.mathematics.secondary",
+    "sequences": [
+      {
+        "events": [
+          {
+            "elapsedDays": 4.6529,
+            "success": true,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 11.556,
+            "success": false,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 11.6975,
+            "success": true,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 8.5516,
+            "success": true,
+            "weight": 1.0
+          }
+        ],
+        "scope": "synthetic.mathematics.secondary",
+        "sequenceId": "seq.synthetic.0000"
+      },
+      {
+        "events": [
+          {
+            "elapsedDays": 13.0124,
+            "success": false,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 11.2956,
+            "success": false,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 2.2545,
+            "success": true,
+            "weight": 0.3
+          },
+          {
+            "elapsedDays": 10.0066,
+            "success": false,
+            "weight": 1.0
+          }
+        ],
+        "scope": "synthetic.mathematics.secondary",
+        "sequenceId": "seq.synthetic.0001"
+      },
+      {
+        "events": [
+          {
+            "elapsedDays": 12.8791,
+            "success": true,
+            "weight": 0.3
+          },
+          {
+            "elapsedDays": 1.3447,
+            "success": true,
+            "weight": 0.3
+          },
+          {
+            "elapsedDays": 7.2712,
+            "success": true,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 7.7847,
+            "success": true,
+            "weight": 0.3
+          }
+        ],
+        "scope": "synthetic.mathematics.secondary",
+        "sequenceId": "seq.synthetic.0002"
+      },
+      {
+        "events": [
+          {
+            "elapsedDays": 8.8968,
+            "success": true,
+            "weight": 0.3
+          },
+          {
+            "elapsedDays": 4.2865,
+            "success": true,
+            "weight": 0.3
+          },
+          {
+            "elapsedDays": 11.126,
+            "success": true,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 6.6474,
+            "success": true,
+            "weight": 1.0
+          }
+        ],
+        "scope": "synthetic.mathematics.secondary",
+        "sequenceId": "seq.synthetic.0003"
+      },
+      {
+        "events": [
+          {
+            "elapsedDays": 5.344,
+            "success": true,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 6.199,
+            "success": false,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 4.3704,
+            "success": true,
+            "weight": 0.3
+          },
+          {
+            "elapsedDays": 0.8875,
+            "success": true,
+            "weight": 1.0
+          }
+        ],
+        "scope": "synthetic.mathematics.secondary",
+        "sequenceId": "seq.synthetic.0004"
+      },
+      {
+        "events": [
+          {
+            "elapsedDays": 8.8137,
+            "success": true,
+            "weight": 0.3
+          },
+          {
+            "elapsedDays": 10.5608,
+            "success": true,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 1.3427,
+            "success": true,
+            "weight": 1.0
+          },
+          {
+            "elapsedDays": 12.5768,
+            "success": true,
+            "weight": 1.0
+          }
+        ],
+        "scope": "synthetic.mathematics.secondary",
+        "sequenceId": "seq.synthetic.0005"
+      }
+    ]
+  },
+  "description": "Synthetic Step 11 parity fixture for aeh/fsrs_calibration.py and dsh-plugin/src/core/fsrs-calibration.ts. Synthetic review sequences only; no real student data, item text, answers, hints, or solutions.",
+  "expected": {
+    "applicability": {
+      "conditions": [
+        "synthetic-only calibration; this is not a production calibration",
+        "scope=synthetic.mathematics.secondary",
+        "data_version=synthetic.fsrs.calibration.v1",
+        "parameter_version=fsrs_calibrated_aeh_v1",
+        "elapsed_days within [0.8875, 13.0124]"
+      ],
+      "elapsedDaysMax": 13.0124,
+      "elapsedDaysMin": 0.8875,
+      "evidenceSufficient": true,
+      "hintedObservations": 8,
+      "independentObservations": 16,
+      "observationCount": 24,
+      "outOfScope": [
+        "real student scheduling or mastery until prospective, independently observed validation",
+        "extrapolation beyond the observed elapsed-day range",
+        "knowledge components outside the declared scope",
+        "any change that lowers the curriculum/safety gate or writes observed twin state"
+      ],
+      "scope": "synthetic.mathematics.secondary",
+      "sequenceCount": 6
+    },
+    "configFingerprint": "8207b27252dad96353f987b009e3e84d1a1cc5db1bb4d2ba0b45e6942c0e9245",
+    "dataVersion": "synthetic.fsrs.calibration.v1",
+    "datasetDigest": "fc2ea34f9b99b3a18293b08f76d956f70f2e144448727dd5032b34fb78ce13b0",
+    "estimates": [
+      {
+        "ciHigh": 11.5077,
+        "ciLow": 1.0,
+        "identified": false,
+        "name": "initial_stability_days",
+        "point": 8.2438,
+        "prior": 1.0
+      },
+      {
+        "ciHigh": 2.0,
+        "ciLow": 0.05,
+        "identified": false,
+        "name": "success_growth",
+        "point": 1.8172,
+        "prior": 0.6
+      },
+      {
+        "ciHigh": 0.5925,
+        "ciLow": 0.05,
+        "identified": false,
+        "name": "failure_shrink",
+        "point": 0.5016,
+        "prior": 0.4
+      },
+      {
+        "ciHigh": 9.4375,
+        "ciLow": 1.0,
+        "identified": false,
+        "name": "initial_difficulty",
+        "point": 7.75,
+        "prior": 5.0
+      },
+      {
+        "ciHigh": 1.0,
+        "ciLow": 0.0,
+        "identified": false,
+        "name": "difficulty_success_delta",
+        "point": 1.0,
+        "prior": 0.2
+      },
+      {
+        "ciHigh": 1.9375,
+        "ciLow": 0.0,
+        "identified": false,
+        "name": "difficulty_failure_delta",
+        "point": 1.75,
+        "prior": 0.5
+      }
+    ],
+    "evidenceSufficient": true,
+    "limitations": [
+      "synthetic review sequences only; no real student data is used",
+      "the illustrative 19/81 retention curve and a linear difficulty term are fixed; only dynamics parameters are fit",
+      "bootstrap intervals quantify resampling uncertainty, not model misspecification",
+      "weakly identified parameters: initial_stability_days, success_growth, failure_shrink, initial_difficulty, difficulty_success_delta, difficulty_failure_delta"
+    ],
+    "metrics": {
+      "brier": 0.1254,
+      "brierCiHigh": 0.17,
+      "brierCiLow": 0.0606,
+      "ece": 0.1388,
+      "logLoss": 0.4313,
+      "reliabilityBins": [
+        {
+          "count": 0,
+          "meanObserved": 0.0,
+          "meanPredicted": 0.0
+        },
+        {
+          "count": 0,
+          "meanObserved": 0.0,
+          "meanPredicted": 0.0
+        },
+        {
+          "count": 0,
+          "meanObserved": 0.0,
+          "meanPredicted": 0.0
+        },
+        {
+          "count": 2,
+          "meanObserved": 0.0,
+          "meanPredicted": 0.374
+        },
+        {
+          "count": 0,
+          "meanObserved": 0.0,
+          "meanPredicted": 0.0
+        },
+        {
+          "count": 0,
+          "meanObserved": 0.0,
+          "meanPredicted": 0.0
+        },
+        {
+          "count": 1,
+          "meanObserved": 1.0,
+          "meanPredicted": 0.6562
+        },
+        {
+          "count": 4,
+          "meanObserved": 0.75,
+          "meanPredicted": 0.7576
+        },
+        {
+          "count": 5,
+          "meanObserved": 1.0,
+          "meanPredicted": 0.8549
+        },
+        {
+          "count": 12,
+          "meanObserved": 0.8333,
+          "meanPredicted": 0.9569
+        }
+      ]
+    },
+    "observationCount": 24,
+    "parameterVersion": "fsrs_calibrated_aeh_v1",
+    "parameters": {
+      "difficulty_failure_delta": 1.75,
+      "difficulty_success_delta": 1.0,
+      "failure_shrink": 0.5016,
+      "initial_difficulty": 7.75,
+      "initial_stability_days": 8.2438,
+      "success_growth": 1.8172
+    },
+    "reportFingerprint": "7f39be45e364faf4aa2a316e60bb955a26c799184dc2698e6b92d3d032f336da",
+    "schema": "aeh.fsrs.calibration.v1",
+    "seed": 20240711,
+    "sequenceCount": 6
+  }
+}
