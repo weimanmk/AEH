@@ -1,12 +1,14 @@
 # AEH — Adaptive Cognitive Twin Education Harness
 
 AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库对应
-[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2**：Step 1 用 Python 标准库实现可测试的
-核心机制；Step 2 在核心之上增加一个完全离线的合成演示会话，以及只消费已授权聚合
-事件的教师/家长报告。
+[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3**：Step 1 用 Python 标准库实现
+可测试的核心机制；Step 2 在核心之上增加一个完全离线的合成演示会话，以及只消费
+已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript 的 dsh / Cordis 教育
+插件骨架，把核心机制映射为教育工具，但尚未在真实 dsh 运行时挂载。
 
-当前状态：**核心骨架 + 合成演示，不是生产系统**。所有模块无第三方依赖，CI 不需要
-`pip install`。
+当前状态：**核心骨架 + 合成演示 + 未挂载的插件骨架，不是生产系统**。Python 模块
+无第三方依赖，CI 不需要 `pip install`；插件骨架用 Node 24 内置 TypeScript type
+stripping 离线测试，不需要安装 dsh 包。
 
 ## 这是什么
 
@@ -23,11 +25,15 @@ AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库
   闭环，所有状态变化都经过 Step 1 的门禁、孪生、假设、记忆与交付模块。
 - 一个最小权限的报告生成器：只接受固定 schema 的已授权聚合事件，不接收题目、答案、
   图片、作答步骤或任意自由文本，输出中也不包含事件 ID。
+- 一个 dsh / Cordis 教育插件骨架（TypeScript）：把门禁、孪生边界、FSRS 复习、
+  短期假设、诊断选择和干预包准备映射为五个默认最小权限工具；孪生写与干预交付
+  仍由宿主负责，模型无法绕过门禁或直接发题。
 
 ## 这不是什么
 
 - 不是完整的教学系统、App 或生产服务；没有数据库、鉴权、多租户隔离、真实 LLM、
-  插件运行时或真实学生数据接入。
+  真实学生数据接入或已挂载的 dsh 插件运行时。Step 3 只提供 TypeScript 骨架和离线
+  测试，未在真实 dsh / Cordis 中加载。
 - 不是真实 OCR、拍照 App 或通用数学判题器。演示中的“照片”、OCR、学生步骤和判题
   结果都是内存中的合成 fixture，不读文件、不连网、不调用模型。
 - 报告生成器不是完整的同意管理或访问控制服务；它只实现“授权聚合事件进、
@@ -49,9 +55,13 @@ AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库
 | 诊断按信息增益选 probe，学生可跳过，不允许的题不参与 | `aeh/diagnosis.py` | `tests/test_diagnosis.py` |
 | 演示只用合成 fixture；超前探针不会被选中 | `aeh/demo_session.py` | `tests/test_demo_session.py` |
 | 报告只用已授权聚合事件，不输出原始数据或事件 ID | `aeh/report.py` | `tests/test_report.py` |
+| 插件默认最小权限；无原始数据、DB 写、凭据、文件或网络访问 | `dsh-plugin/src/permissions.ts` | `dsh-plugin/tests/invariants.test.ts` |
+| 孪生写与干预交付属于宿主；模型不能绕过门禁或直接发题 | `dsh-plugin/src/tools.ts`、`dsh-plugin/src/core/twin.ts` | `dsh-plugin/tests/invariants.test.ts` |
 
 另外，`tests/test_invariants.py` 用端到端断言直接命名并覆盖了 TASKS.md 要求的四条
-Step 1 不变量。Step 2 的测试额外覆盖“演示不接真实数据”和“报告不泄露原始数据”。
+Step 1 不变量。Step 2 的测试额外覆盖“演示不接真实数据”和“报告不泄露原始数据”；
+Step 3 的离线测试覆盖插件侧的模拟隔离、证据绑定 mastery、门禁复检、FSRS 质量权重、
+假设归一化、训练/迁移隔离和默认权限拒绝。
 
 ## Step 2：命令行演示会话
 
@@ -118,6 +128,78 @@ reviews_due, reviews_completed, minutes
 这仍是策略骨架：生产环境必须由可信身份网关注入受众与 scope，并补齐同意记录、
 访问审计、保留期、删除传播和未成年人保护流程。
 
+## Step 3：dsh / Cordis 教育插件骨架
+
+Step 3 在**不改变 Python 核心行为**的前提下，新增 `dsh-plugin/`：一个保持 Cordis
+函数插件形状（`name` / `inject` / `apply(ctx)`）的 TypeScript 骨架，把 Step 1 的
+机制映射为教育服务与五个模型可调用工具。完整映射、权限表和接入清单见
+[`docs/dsh-integration.md`](docs/dsh-integration.md)。
+
+当前 `dsh-plugin/src/dsh.ts` 是离线结构适配层，只实现本骨架用到的
+`Context` / `ctx.effect` / `ctx.tools.register` / `defineTool` 子集；它**不是**
+真实 dsh 运行时，也未做 dsh 契约测试。真正加载前必须替换为
+`@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools`。
+
+### 核心映射
+
+| Step 1 核心 | TypeScript 位置 | Cordis 中的位置 | 默认工具 |
+|---|---|---|---|
+| `curriculum_gate` | `dsh-plugin/src/core/curriculum-gate.ts` | 所有交付/诊断前的策略检查 | `aeh_check_curriculum` |
+| `twin` | `dsh-plugin/src/core/twin.ts` | 宿主拥有的 Profile/Bundle 事件存储适配器 | 无写工具 |
+| `memory` | `dsh-plugin/src/core/memory.ts` | 复习调度计算 | `aeh_schedule_review` |
+| `hypothesis` | `dsh-plugin/src/core/hypothesis.ts` | 会话级临时状态 | `aeh_update_hypotheses` |
+| `diagnosis` | `dsh-plugin/src/core/diagnosis.ts` | 诊断候选选择 | `aeh_select_probe` |
+| `exercise` | `dsh-plugin/src/core/exercise.ts` | 干预准备/校验流水线 | `aeh_prepare_intervention` |
+
+五个工具都是“计算/准备”型：不写数据库、不写长期孪生、不直接交付题目。
+门禁/诊断/干预工具只接收 opaque `itemId` / `studentRef`；题目安全标注和课程进度
+由宿主 `HostContext` 解析，默认实现什么都不返回（fail closed），模型不能内联伪造
+`taughtKcs`、`safetyChecked` 或传 `gateAllowed: true` 绕过。孪生 observed 写入与
+干预交付属于宿主，需要来源认证、同意、审批和独立门禁复检。
+
+### 默认最小权限
+
+`dsh-plugin/src/permissions.ts` 只允许：
+
+```text
+curriculum:read
+session:hypothesis:write
+review:schedule:compute
+intervention:prepare
+```
+
+永久拒绝学生原始数据、数据库写、凭据、任意文件、网络、observed twin 写、门禁
+覆盖和自我批准。激活时任何越权请求都会让插件加载 fail-closed；没有提权入口。
+测试只使用 `synthetic.student.001` 这类合成引用，不包含真实学生数据或密钥。
+
+### 本地验证
+
+要求 Node **>= 24**（使用内置 TypeScript type stripping，无需安装依赖）：
+
+```bash
+cd dsh-plugin
+node --test tests/*.test.ts
+```
+
+13 个离线测试覆盖门禁拒绝、preview 锁定、模拟事件隔离、证据绑定 mastery、回滚、
+阅读/提示/独立作答权重、FSRS 反解、假设归一化、诊断门禁复检与跳过、干预包
+训练/迁移隔离、默认权限拒绝、插件注册与卸载，以及无宿主授权时的 fail-closed。
+
+可选类型检查（需要先 `npm install` 安装 devDependencies）：
+
+```bash
+cd dsh-plugin
+npm run typecheck
+```
+
+### 接入状态
+
+Step 3 **没有**在真实 dsh / Cordis 运行时加载过，也没有接入真实学生数据。真正
+接入还需要：替换适配层、实现宿主 `HostContext`（授权 progress/item）、宿主孪生
+存储与来源证明、身份/同意/租户绑定、交付审批与回滚、dsh 契约测试、审计与速率
+限制、FSRS 参数校准等。逐项说明和验收标准见
+[`docs/dsh-integration.md`](docs/dsh-integration.md) 第 9 节。
+
 ## 目录结构
 
 ```text
@@ -132,7 +214,15 @@ aeh/
   demo_session.py      # Step 2 合成拍题/批改/诊断/复习闭环
   report.py            # Step 2 已授权聚合事件的教师/家长报告
   demo.py              # Step 2 命令行入口（python -m aeh.demo）
-tests/                 # 标准库 unittest 测试
+dsh-plugin/            # Step 3 TypeScript dsh / Cordis 教育插件骨架
+  src/index.ts         # Cordis 插件入口（name / inject / apply）
+  src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包
+  src/tools.ts         # 五个教育工具
+  src/permissions.ts   # 默认最小权限
+  tests/               # Node 24 离线测试
+docs/
+  dsh-integration.md   # Step 3 映射、权限与真实接入清单
+tests/                 # Python 标准库 unittest 测试
 .github/workflows/ci.yml
 spec/                  # 规范全文（只读，不修改）
 references/            # 本地参考仓库（只读，已被 .gitignore 忽略，不提交）
@@ -166,41 +256,30 @@ python3 -m unittest discover -s tests -p 'test_report.py' -v
 python3 -m unittest discover -s tests -p 'test_twin.py' -v
 ```
 
-## CI
-
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在 push 和 pull request 时用
-Python 3.11 与 3.12 矩阵运行：
+Step 3 的插件测试要求 Node **>= 24**，不需要安装 dsh 包：
 
 ```bash
-python -m unittest discover -s tests -v
+cd dsh-plugin
+node --test tests/*.test.ts
 ```
 
-没有 `pip install` 步骤，也没有外部服务或密钥依赖。
+## CI
 
-## 与 dsh / Cordis 的映射方向（Step 3）
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在 push 和 pull request 时运行：
 
-Step 1/2 不实现完整插件。后续映射方向如下：
+- Python 3.11 与 3.12 矩阵：`python -m unittest discover -s tests -v`；
+- Node 24 job：`node --test dsh-plugin/tests/*.test.ts`。
 
-| AEH 核心 | dsh / Cordis 中的位置 |
-|---|---|
-| `curriculum_gate` | 工具调用/内容交付前的策略检查；插件不能绕过，默认拒绝 |
-| `twin` | Profile / Bundle 中的事件存储与推断状态；`observed` 与 `simulated` 分命名空间 |
-| `memory` | 复习调度 Service，向调度器提供保持率与下次间隔 |
-| `hypothesis` | 会话级临时状态；不写入长期真实证据 |
-| `diagnosis` | 工具选择策略；按信息增益排序并允许学生跳过 |
-| `exercise` | 干预生成流水线；生成器、校验器、评测器分权 |
-| `demo_session` | 本地端到端验收脚本；不作为生产数据入口 |
-| `report` | 受限报告工具；只接收已授权聚合事件，不接受原始学生数据 |
-
-插件默认最小权限：无学生原始数据、无数据库写权限、无凭据、无任意文件或网络访问；
-只接收已授权的汇总事件。课程/安全门禁属于 Harness 侧不可绕过的约束。
+没有 `pip install` 步骤，也没有外部服务或密钥依赖；插件测试使用 Node 内置的
+TypeScript type stripping，不需要安装 dsh 包。
 
 ## 参考来源与许可证注意事项
 
 `references/` 是本地只读参考目录，**已被 `.gitignore` 忽略，不进入版本库**：
 
-- `references/deepseek-harness/`：DeepSeek Harness / dsh / Cordis 基座，MIT。仅用于
-  集成方向参考，本仓库未复制其代码。
+- `references/deepseek-harness/`：DeepSeek Harness / dsh / Cordis 基座，MIT。Step 3
+  仅参考其函数插件、`inject`、`ctx.effect` 和 `ctx.tools.register` 结构，本仓库未
+  复制其代码。
 - `references/MiroFish/`：多 Agent 仿真、GraphRAG、动态记忆的借鉴来源，AGPL-3.0。
   本项目只借鉴机制，不复制整套代码；若未来引入其代码，必须重新评估 AGPL 义务。
 - `references/StudentSim/`：虚拟学生行为保真与教学提示响应的借鉴来源；其许可证与
@@ -213,15 +292,18 @@ Step 1/2 不实现完整插件。后续映射方向如下：
 
 ## 已知边界 / TODO
 
-Step 1/2 有意不做以下内容，后续步骤再实现：
+Step 1/2/3 有意不做以下内容，后续步骤再实现：
 
 - 持久化存储、租户/学生访问边界、数据删除向派生存储的传播、鉴权与审计日志。
 - 真实 OCR、图片脱敏、真实 LLM 生成、真实评分器、数学正确性求解器与内容安全
   服务；演示只使用脚本化合成 fixture。
 - 报告生成器背后的可信身份网关、同意记录、访问审计、保留期与删除传播。
-- 插件安装/卸载、权限声明、沙箱与凭据撤销。
+- 真实 dsh 运行时挂载、dsh 契约测试、插件安装/卸载、沙箱与凭据撤销；Step 3 的
+  `src/dsh.ts` 只是离线结构适配层，最小权限清单已在 `src/permissions.ts` 声明。
+- 孪生写工具与干预交付工具；它们被有意保留在宿主侧，默认插件不暴露。
 - 自进化的候选—隔离评测—批准—灰度—回滚流水线。
 - 真实学生迁移与延迟保持的校准；当前记忆参数为示意值，小样本仍保留高不确定性。
+- 插件输出 schema 收紧、审计/速率限制、locale 与跨进程并发控制。
 
 ## 安全约定
 
@@ -231,3 +313,5 @@ Step 1/2 有意不做以下内容，后续步骤再实现：
 - 任何 mastery 更新必须引用已存在的真实证据 id；模拟事件不能被提升为真实证据。
 - 演示只构造合成学生与合成事件；报告只接收聚合事件，不接收孪生原始事件、图片、
   题目或作答文本。
+- Step 3 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
+  凭据、文件或网络权限，observed 孪生写与干预交付不属于模型工具。
