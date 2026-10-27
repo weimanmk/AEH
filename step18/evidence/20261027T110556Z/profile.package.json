@@ -1,0 +1,14 @@
+{
+  "name": "dsh-profile-aeh-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AEH Step 18 isolated profile: dsh-base + dsh-headless plus the AEH plugin with its synthetic host. Never loaded by the running harness.",
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-headless"
+      ]
+    }
+  }
+}
