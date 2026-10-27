@@ -618,6 +618,7 @@ export function createEducationTools(
             beta: { type: 'number' },
             gamma: { type: 'number' },
             delta: { type: 'number' },
+            zeta: { type: 'number' },
           },
         },
         skipped: {

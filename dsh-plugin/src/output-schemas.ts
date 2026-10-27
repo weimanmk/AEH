@@ -129,6 +129,7 @@ const probeSelectionOutputSchema = {
     timePenalty: { type: 'number', required: true },
     riskPenalty: { type: 'number', required: true },
     loadPenalty: { type: 'number', required: true },
+    answerUncertainty: { type: 'number', required: true },
     reasons: { ...reasonList, required: true },
     candidate: {
       oneOf: [diagnosticCandidateOutputSchema, { type: 'null' }],

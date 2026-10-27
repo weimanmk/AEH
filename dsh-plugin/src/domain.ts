@@ -135,6 +135,8 @@ export interface ProbeWeightInput {
   readonly beta?: number
   readonly gamma?: number
   readonly delta?: number
+  /** Step 14: penalty on the predicted-answer uncertainty. */
+  readonly zeta?: number
 }
 
 /** One practice/review observation with quality metadata (spec 8.4). */
@@ -160,6 +162,8 @@ export interface MemoryStateInput {
   readonly uncertainty?: 'low' | 'medium' | 'high'
   readonly modelFamily?: string
   readonly modelVersion?: string
+  readonly lastObservedAt?: string | null
+  readonly needsCalibration?: boolean
 }
 
 /** Complete memory state after normalisation. */
@@ -174,6 +178,10 @@ export interface MemoryState {
   readonly uncertainty: 'low' | 'medium' | 'high'
   readonly modelFamily: string
   readonly modelVersion: string
+  /** Step 12: timestamp of the most recent weighted observation. */
+  readonly lastObservedAt: string | null
+  /** Step 12: overdue against the target retention; never lowers stability. */
+  readonly needsCalibration: boolean
 }
 
 /** A candidate intervention package before validation. */

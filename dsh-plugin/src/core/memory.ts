@@ -32,7 +32,207 @@ export const MIN_STABILITY_DAYS = 0.4
 export const INITIAL_STABILITY_DAYS = 1
 export const INITIAL_DIFFICULTY = 5
 
+/** Step 12: FSRS dynamics parameter bounds/reference values. */
+export const DIFFICULTY_MIN = 1
+export const DIFFICULTY_MAX = 10
+export const DIFFICULTY_REFERENCE = 5
+export const DIFFICULTY_SUCCESS_DELTA = 0.2
+export const DIFFICULTY_FAILURE_DELTA = 0.5
+
+/** The spec-8.3 illustrative parameter version (baseline before calibration). */
+export const BASELINE_PARAMETER_VERSION = 'fsrs_illustrative_19_81'
+
+/** Ordered parameter names, matching `fsrs-calibration.ts` PARAMETER_NAMES. */
+export const MEMORY_PARAMETER_NAMES = Object.freeze([
+  'initial_stability_days',
+  'success_growth',
+  'failure_shrink',
+  'initial_difficulty',
+  'difficulty_success_delta',
+  'difficulty_failure_delta',
+] as const)
+
 export type ObservationKind = 'attempt' | 'hint_followup' | 'reading'
+
+export interface MemoryParametersInput {
+  readonly initialStabilityDays?: number
+  readonly successGrowth?: number
+  readonly failureShrink?: number
+  readonly initialDifficulty?: number
+  readonly difficultySuccessDelta?: number
+  readonly difficultyFailureDelta?: number
+  readonly parameterVersion?: string
+}
+
+function finiteParameter(value: number, name: string): number {
+  if (!isFiniteNumber(value)) {
+    throw new MemoryError(`${name} must be a finite number`)
+  }
+  if (value < 0) {
+    throw new MemoryError(`${name} must be >= 0`)
+  }
+  return value
+}
+
+/**
+ * A validated FSRS dynamics parameter vector (Step 11 candidate shape).
+ *
+ * The defaults are exactly the spec-8.3 illustrative parameters, so a baseline
+ * instance is numerically identical to the pre-Step-12 behaviour. A calibrated
+ * candidate is attached to a twin as a *pending* candidate and only becomes
+ * effective after an explicit host approval.
+ */
+export class MemoryParameters {
+  readonly initialStabilityDays: number
+  readonly successGrowth: number
+  readonly failureShrink: number
+  readonly initialDifficulty: number
+  readonly difficultySuccessDelta: number
+  readonly difficultyFailureDelta: number
+  readonly parameterVersion: string
+
+  constructor(input: MemoryParametersInput = {}) {
+    this.initialStabilityDays = finiteParameter(
+      input.initialStabilityDays ?? INITIAL_STABILITY_DAYS,
+      'initialStabilityDays',
+    )
+    this.successGrowth = finiteParameter(
+      input.successGrowth ?? SUCCESS_GROWTH,
+      'successGrowth',
+    )
+    this.failureShrink = finiteParameter(
+      input.failureShrink ?? FAILURE_SHRINK,
+      'failureShrink',
+    )
+    this.initialDifficulty = finiteParameter(
+      input.initialDifficulty ?? INITIAL_DIFFICULTY,
+      'initialDifficulty',
+    )
+    this.difficultySuccessDelta = finiteParameter(
+      input.difficultySuccessDelta ?? DIFFICULTY_SUCCESS_DELTA,
+      'difficultySuccessDelta',
+    )
+    this.difficultyFailureDelta = finiteParameter(
+      input.difficultyFailureDelta ?? DIFFICULTY_FAILURE_DELTA,
+      'difficultyFailureDelta',
+    )
+    const version = input.parameterVersion ?? BASELINE_PARAMETER_VERSION
+    if (typeof version !== 'string' || version.length === 0) {
+      throw new MemoryError('parameterVersion must be a non-empty string')
+    }
+    this.parameterVersion = version
+    if (this.initialStabilityDays <= 0) {
+      throw new MemoryError('initialStabilityDays must be > 0')
+    }
+    if (this.initialDifficulty < 1 || this.initialDifficulty > 10) {
+      throw new MemoryError('initialDifficulty must be within [1, 10]')
+    }
+    Object.freeze(this)
+  }
+
+  static baseline(): MemoryParameters {
+    return new MemoryParameters()
+  }
+
+  /** Build parameters from a Step-11 candidate `parameters` mapping. */
+  static fromMapping(
+    data: Readonly<Record<string, unknown>>,
+    parameterVersion?: string,
+  ): MemoryParameters {
+    if (data === null || typeof data !== 'object') {
+      throw new MemoryError('parameters must be an object')
+    }
+    const read = (name: string): number => {
+      const value = data[name]
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new MemoryError(`parameters.${name} must be a finite number`)
+      }
+      return value
+    }
+    const version =
+      parameterVersion ??
+      (typeof data['parameter_version'] === 'string'
+        ? (data['parameter_version'] as string)
+        : BASELINE_PARAMETER_VERSION)
+    return new MemoryParameters({
+      initialStabilityDays: read('initial_stability_days'),
+      successGrowth: read('success_growth'),
+      failureShrink: read('failure_shrink'),
+      initialDifficulty: read('initial_difficulty'),
+      difficultySuccessDelta: read('difficulty_success_delta'),
+      difficultyFailureDelta: read('difficulty_failure_delta'),
+      parameterVersion: version,
+    })
+  }
+
+  valueDict(): Record<string, number> {
+    return {
+      initial_stability_days: this.initialStabilityDays,
+      success_growth: this.successGrowth,
+      failure_shrink: this.failureShrink,
+      initial_difficulty: this.initialDifficulty,
+      difficulty_success_delta: this.difficultySuccessDelta,
+      difficulty_failure_delta: this.difficultyFailureDelta,
+    }
+  }
+
+  difficultyFactor(difficulty: number): number {
+    return (DIFFICULTY_MAX - difficulty) / (DIFFICULTY_MAX - DIFFICULTY_REFERENCE)
+  }
+
+  effectiveStability(stabilityDays: number, difficulty: number): number {
+    const effective = stabilityDays * this.difficultyFactor(difficulty)
+    return effective > MIN_STABILITY_DAYS ? effective : MIN_STABILITY_DAYS
+  }
+
+  predict(
+    elapsedDays: number,
+    stabilityDays: number,
+    difficulty: number,
+  ): number {
+    const effective = this.effectiveStability(stabilityDays, difficulty)
+    return (1 + FSRS_19_81 * (elapsedDays / effective)) ** -0.5
+  }
+
+  nextIntervalDays(
+    stabilityDays: number,
+    difficulty: number,
+    targetRetention = 0.9,
+  ): number {
+    const effective = this.effectiveStability(stabilityDays, difficulty)
+    return intervalForTarget(effective, targetRetention)
+  }
+
+  update(
+    stabilityDays: number,
+    difficulty: number,
+    success: boolean,
+    weight: number,
+  ): { readonly stabilityDays: number; readonly difficulty: number } {
+    if (weight <= 0) {
+      return { stabilityDays, difficulty }
+    }
+    if (success) {
+      return {
+        stabilityDays: stabilityDays * (1 + this.successGrowth * weight),
+        difficulty: Math.max(
+          DIFFICULTY_MIN,
+          difficulty - this.difficultySuccessDelta * weight,
+        ),
+      }
+    }
+    return {
+      stabilityDays: Math.max(
+        MIN_STABILITY_DAYS,
+        stabilityDays * (1 - this.failureShrink * weight),
+      ),
+      difficulty: Math.min(
+        DIFFICULTY_MAX,
+        difficulty + this.difficultyFailureDelta * weight,
+      ),
+    }
+  }
+}
 
 function positive(value: number, name: string): number {
   if (!isFiniteNumber(value) || value <= 0) {
@@ -94,6 +294,8 @@ export function normalizeMemoryState(input: MemoryStateInput): MemoryState {
     uncertainty: input.uncertainty ?? 'high',
     modelFamily: input.modelFamily ?? 'fsrs_compatible',
     modelVersion: input.modelVersion ?? 'fsrs_illustrative_19_81',
+    lastObservedAt: input.lastObservedAt ?? null,
+    needsCalibration: input.needsCalibration ?? false,
   })
 }
 
@@ -142,6 +344,7 @@ export function isIndependentRetrievalSuccess(
 export function updateMemory(
   state: MemoryState,
   observation: MemoryObservationInput,
+  parameters?: MemoryParameters,
 ): MemoryState {
   const hintLevel = observation.hintLevel ?? 0
   if (!Number.isInteger(hintLevel) || hintLevel < 0) {
@@ -154,18 +357,13 @@ export function updateMemory(
     return state
   }
 
-  let stability: number
-  let difficulty: number
-  if (observation.success) {
-    stability = state.stabilityDays * (1 + SUCCESS_GROWTH * weight)
-    difficulty = Math.max(1, state.difficulty - 0.2 * weight)
-  } else {
-    stability = Math.max(
-      MIN_STABILITY_DAYS,
-      state.stabilityDays * (1 - FAILURE_SHRINK * weight),
-    )
-    difficulty = Math.min(10, state.difficulty + 0.5 * weight)
-  }
+  const params = parameters ?? new MemoryParameters()
+  const next = params.update(
+    state.stabilityDays,
+    state.difficulty,
+    observation.success,
+    weight,
+  )
 
   const independent = isIndependentRetrievalSuccess(observation)
   const count = state.observationCount + 1
@@ -177,20 +375,157 @@ export function updateMemory(
 
   return Object.freeze({
     ...state,
-    stabilityDays: stability,
-    difficulty,
+    stabilityDays: next.stabilityDays,
+    difficulty: next.difficulty,
     observationCount: count,
     independentSuccessCount: independentCount,
     lastIndependentSuccessAt: lastSuccess,
+    lastObservedAt: observation.occurredAt ?? state.lastObservedAt ?? null,
+    needsCalibration: false,
     uncertainty: uncertaintyFor(count),
+    modelVersion:
+      parameters === undefined ? state.modelVersion : params.parameterVersion,
   })
 }
 
 export function updateMany(
   state: MemoryState,
   observations: readonly MemoryObservationInput[],
+  parameters?: MemoryParameters,
 ): MemoryState {
-  return observations.reduce(updateMemory, state)
+  return observations.reduce(
+    (current, observation) => updateMemory(current, observation, parameters),
+    state,
+  )
+}
+
+/** Raise uncertainty by one band; never conclude "does not know" (spec 5). */
+function bumpUncertainty(
+  uncertainty: MemoryState['uncertainty'],
+): MemoryState['uncertainty'] {
+  if (uncertainty === 'low') return 'medium'
+  return 'high'
+}
+
+function elapsedDaysBetween(anchor: string, now: string): number {
+  const anchorMs = Date.parse(anchor)
+  const nowMs = Date.parse(now)
+  if (!Number.isFinite(anchorMs) || !Number.isFinite(nowMs) || nowMs <= anchorMs) {
+    return 0
+  }
+  return (nowMs - anchorMs) / 86_400_000
+}
+
+/**
+ * Age a memory state without ever lowering stability or difficulty.
+ *
+ * An overdue unit only raises uncertainty and flags itself for calibration; a
+ * long silence is evidence of a stale estimate, not evidence of forgetting.
+ */
+export function applyForgetting(
+  state: MemoryState,
+  now: string,
+  options: {
+    readonly targetRetention?: number
+    readonly parameters?: MemoryParameters
+  } = {},
+): MemoryState {
+  const anchor = state.lastObservedAt ?? state.lastIndependentSuccessAt
+  if (anchor === null) {
+    return state
+  }
+  const elapsed = elapsedDaysBetween(anchor, now)
+  if (elapsed <= 0) {
+    return state
+  }
+  const params = options.parameters ?? new MemoryParameters()
+  const target = options.targetRetention ?? 0.9
+  const expected = params.predict(elapsed, state.stabilityDays, state.difficulty)
+  if (expected >= target) {
+    return state
+  }
+  return Object.freeze({
+    ...state,
+    uncertainty: bumpUncertainty(state.uncertainty),
+    needsCalibration: true,
+  })
+}
+
+/** A JSON-friendly health view for one memory unit. */
+export function memoryHealth(
+  state: MemoryState,
+  now: string,
+  options: {
+    readonly targetRetention?: number
+    readonly parameters?: MemoryParameters
+  } = {},
+): Readonly<Record<string, unknown>> {
+  const anchor = state.lastObservedAt ?? state.lastIndependentSuccessAt
+  const elapsed = anchor === null ? 0 : elapsedDaysBetween(anchor, now)
+  const params = options.parameters ?? new MemoryParameters()
+  const target = options.targetRetention ?? 0.9
+  const expected = params.predict(elapsed, state.stabilityDays, state.difficulty)
+  return Object.freeze({
+    memoryUnitId: state.memoryUnitId,
+    stabilityDays: Number(state.stabilityDays.toFixed(6)),
+    difficulty: Number(state.difficulty.toFixed(6)),
+    observationCount: state.observationCount,
+    uncertainty: state.uncertainty,
+    elapsedDays: Number(elapsed.toFixed(6)),
+    expectedRetrievability: Number(expected.toFixed(6)),
+    targetRetention: target,
+    overdue: expected < target,
+    needsCalibration: state.needsCalibration,
+  })
+}
+
+/** Aggregate long-term memory across knowledge components. */
+export function aggregateMemory(
+  states: readonly MemoryState[],
+  now: string,
+  options: {
+    readonly targetRetention?: number
+    readonly parameters?: MemoryParameters
+  } = {},
+): Readonly<Record<string, unknown>> {
+  const health = states.map((state) => memoryHealth(state, now, options))
+  const unitCount = health.length
+  const overdue = health.filter((entry) => entry['overdue'] === true)
+  const mean = (key: string): number => {
+    if (unitCount === 0) return 0
+    const total = health.reduce(
+      (sum, entry) => sum + (entry[key] as number),
+      0,
+    )
+    return Number((total / unitCount).toFixed(6))
+  }
+  const weakest = [...health]
+    .sort((left, right) => {
+      const diff =
+        (left['expectedRetrievability'] as number) -
+        (right['expectedRetrievability'] as number)
+      return diff !== 0
+        ? diff
+        : String(left['memoryUnitId']).localeCompare(String(right['memoryUnitId']))
+    })
+    .slice(0, 5)
+    .map((entry) =>
+      Object.freeze({
+        memoryUnitId: entry['memoryUnitId'],
+        expectedRetrievability: entry['expectedRetrievability'],
+        uncertainty: entry['uncertainty'],
+      }),
+    )
+  return Object.freeze({
+    unitCount,
+    overdueCount: overdue.length,
+    needsCalibrationCount: health.filter(
+      (entry) => entry['needsCalibration'] === true,
+    ).length,
+    meanStabilityDays: mean('stabilityDays'),
+    meanDifficulty: mean('difficulty'),
+    weakestUnits: Object.freeze(weakest),
+  })
 }
 
 /** A minimal, JSON-friendly diagnosis view of a memory state. */
