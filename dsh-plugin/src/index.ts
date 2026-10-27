@@ -23,6 +23,7 @@ import {
 } from './config.ts'
 import { AehAuditLog } from './host/audit-log.ts'
 import { SessionSnapshotStore } from './host/session-state.ts'
+import { SecurityGuard } from './security.ts'
 import {
   createEducationService,
   type Config as ServiceConfig,
@@ -79,12 +80,21 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
   const service = createEducationService(resolved, config.host)
   const snapshots = new SessionSnapshotStore()
   const audit = new AehAuditLog()
+  // Step 8: one guard per mount, so rate-limit state never leaks between hosts.
+  const security = new SecurityGuard({
+    limits: resolved.security.limits,
+    rateLimits: resolved.security.rateLimits,
+  })
 
   ctx.effect(() => {
     const disposers: Array<() => void> = []
     const detachSessionCleanup = attachSessionCleanup(ctx, snapshots, audit)
     try {
-      for (const tool of createEducationTools(service, { audit, snapshots })) {
+      for (const tool of createEducationTools(service, {
+        audit,
+        snapshots,
+        security,
+      })) {
         disposers.push(ctx.tools.register(tool))
       }
     } catch (error) {
@@ -101,6 +111,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
       }
       // The store is per-plugin and unexported; drop every snapshot on unload.
       snapshots.clear()
+      security.reset()
     }
   })
 }
@@ -156,9 +167,26 @@ export {
   ConfigValidationError,
   gateModeSchema,
   resolveAehConfig,
+  resolveSecurityConfig,
   type PluginProfile,
   type ResolvedAehConfig,
+  type ResolvedSecurityConfig,
 } from './config.ts'
+export {
+  DEFAULT_RATE_LIMITS,
+  DEFAULT_SECURITY_LIMITS,
+  SECURITY_ERROR_CODES,
+  SecurityError,
+  SecurityGuard,
+  extractStudentRef,
+  redactMessage,
+  redactThrown,
+  type RateLimitPolicy,
+  type SecurityCallContext,
+  type SecurityErrorCode,
+  type SecurityGuardOptions,
+  type SecurityLimits,
+} from './security.ts'
 export {
   AUDIT_EVENT_KINDS,
   AehAuditLog,

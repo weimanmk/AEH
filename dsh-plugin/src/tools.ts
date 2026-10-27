@@ -38,6 +38,11 @@ import {
   SessionSnapshotStore,
   type SessionSnapshotRecord,
 } from './host/session-state.ts'
+import {
+  SecurityError,
+  SecurityGuard,
+  redactThrown,
+} from './security.ts'
 import type {
   GateMode,
   HypothesisRecord,
@@ -292,11 +297,20 @@ function auditStudentRef(args: unknown): string | undefined {
     : undefined
 }
 
-/** Wrap one definition so every tool call lands in the append-only audit log. */
-function withAudit(
+/**
+ * Wrap one definition so every tool call is screened and audited.
+ *
+ * Order matters: the cooperative abort check runs first, then the Step 8
+ * security guard (rate limit, payload bounds, injection/privilege screen), and
+ * only then the tool body. A rejected call is recorded in the append-only audit
+ * log with reason codes and never with the raw argument text; a non-security
+ * error keeps its class and gets a redacted message before it propagates.
+ */
+function withSecurityAndAudit(
   tool: ToolDefinition,
-  audit: AehAuditLog,
+  audit: AehAuditLog | undefined,
   tenantRef: string | undefined,
+  security: SecurityGuard | undefined,
 ): ToolDefinition {
   const inner = tool.execute
   return {
@@ -304,8 +318,13 @@ function withAudit(
     async execute(args: unknown, exec?: AehToolExec) {
       const studentRef = auditStudentRef(args)
       try {
+        throwIfAborted(exec)
+        security?.guard(tool.name, args, {
+          sessionId: scopeFromExecution(exec)?.sessionId,
+          studentRef,
+        })
         const value = await inner(args, exec)
-        audit.recordToolCall({
+        audit?.recordToolCall({
           tool: tool.name,
           outcome: 'accepted',
           studentRef,
@@ -313,13 +332,25 @@ function withAudit(
         })
         return value
       } catch (error) {
-        audit.recordToolCall({
-          tool: tool.name,
-          outcome: 'rejected',
-          reasonCode: errorCode(error),
-          studentRef,
-          tenantRef,
-        })
+        redactThrown(error)
+        if (error instanceof SecurityError) {
+          audit?.recordToolCall({
+            tool: tool.name,
+            outcome: 'rejected',
+            reasonCodes: [error.code, ...error.reasonCodes],
+            detail: { rejectedBy: 'security' },
+            studentRef,
+            tenantRef,
+          })
+        } else {
+          audit?.recordToolCall({
+            tool: tool.name,
+            outcome: 'rejected',
+            reasonCode: errorCode(error),
+            studentRef,
+            tenantRef,
+          })
+        }
         throw error
       }
     },
@@ -375,6 +406,8 @@ export interface EducationToolOptions {
   readonly audit?: AehAuditLog
   /** Optional session/agent-scoped short-term hypothesis snapshot store. */
   readonly snapshots?: SessionSnapshotStore
+  /** Step 8: per-mount argument/rate guard. */
+  readonly security?: SecurityGuard
 }
 
 /** Build the six tool definitions for one plugin instance. */
@@ -382,7 +415,7 @@ export function createEducationTools(
   service: AehEducationService,
   options: EducationToolOptions = {},
 ): readonly ToolDefinition[] {
-  const { audit, snapshots } = options
+  const { audit, snapshots, security } = options
   const definitions: ToolDefinition[] = [
     defineTool({
       name: 'aeh_check_curriculum',
@@ -735,6 +768,8 @@ export function createEducationTools(
   ]
 
   return definitions.map((tool) =>
-    audit === undefined ? tool : withAudit(tool, audit, service.tenantRef),
+    audit === undefined && security === undefined
+      ? tool
+      : withSecurityAndAudit(tool, audit, service.tenantRef, security),
   )
 }
