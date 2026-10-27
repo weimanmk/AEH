@@ -1,7 +1,7 @@
 # AEH — Adaptive Cognitive Twin Education Harness
 
 AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库对应
-[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8**：
+[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9**：
 Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之上增加一个完全离线的
 合成演示会话，以及只消费已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript
 的 dsh / Cordis 教育插件骨架；Step 4 把插件骨架的离线适配层替换为真实的
@@ -14,7 +14,10 @@ Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之�
 校验 fail loud、六个工具的闭合输出 schema、绑定 dsh session/agent scope 的假设快照
 （TTL/隔离/清理，不写长期孪生），以及追加式脱敏审计（门禁拒绝原因、工具调用、审批
 与交付回执，带不可反识别的学生/租户维度）；Step 8 在工具入口加固：提示注入/越权参数/
-超大 payload/单实例速率限制 fail-closed 并记入审计，错误与日志脱敏。
+超大 payload/单实例速率限制 fail-closed 并记入审计，错误与日志脱敏；Step 9 增加课程知识
+空间：版本化 KC 图（前置闭包/环检测/非法图拒绝）、带版本与审核记录的题库、本地内存
+RAG 检索接口，以及“检索结果必须再过课程门禁 + 前置闭包”的候选准入。Step 9 只使用
+合成标注，不包含真实题目原文、答案、提示或学生数据。
 
 当前状态：**核心骨架 + 合成演示 + 已在隔离实例中验证的插件，不是生产系统**。
 Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真实 `@deepseek-ai/*`
@@ -37,6 +40,10 @@ Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真�
   闭环，所有状态变化都经过 Step 1 的门禁、孪生、假设、记忆与交付模块。
 - 一个最小权限的报告生成器：只接受固定 schema 的已授权聚合事件，不接收题目、答案、
   图片、作答步骤或任意自由文本，输出中也不包含事件 ID。
+- 一个版本化课程知识空间：KC 图只把审核通过的 `REQUIRES` 边当作先修关系，支持
+  传递前置闭包、拓扑序、环检测与版本 diff；题库带结构化标注、版本历史与追加式审核
+  记录；本地内存检索只返回 opaque `itemId` 与标注摘要，命中后仍必须通过课程门禁和
+  前置闭包检查才能成为候选。
 - 一个 dsh / Cordis 教育插件（TypeScript）：把门禁、孪生边界、FSRS 复习、
   短期假设、诊断选择、干预包准备和聚合报告映射为六个默认最小权限工具；孪生写与
   干预交付仍由宿主负责，模型无法绕过门禁或直接发题。插件已用真实 cordis/dsh-tools
@@ -82,6 +89,9 @@ Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真�
 |---|---|---|
 | 模拟不能改变真实掌握；`observed_*` 只由可信真实来源写入 | `aeh/twin.py` | `tests/test_twin.py`、`tests/test_invariants.py` |
 | 未授/超前知识被门禁拒绝，缺失或低置信度标注 fail-closed | `aeh/curriculum_gate.py` | `tests/test_curriculum_gate.py` |
+| KC 图拒绝环/自环/未知端点/重复边；只有 approved `REQUIRES` 进入前置闭包 | `aeh/curriculum_graph.py`、`dsh-plugin/src/core/curriculum-graph.ts` | `tests/test_curriculum_graph.py`、`dsh-plugin/tests/curriculum-graph.test.ts` |
+| 题库版本化、审核记录追加、缺失标注不可批准；低置信度仍被门禁拒绝 | `aeh/curriculum_graph.py`、`dsh-plugin/src/core/curriculum-graph.ts` | 同上 |
+| 检索只返回 opaque id + 标注摘要；命中必须再过门禁与前置闭包，前置未满足不交付 | `aeh/curriculum_graph.py`、`dsh-plugin/src/core/curriculum-graph.ts`、`dsh-plugin/src/service.ts` | 同上 + `dsh-plugin/tests/curriculum-graph.test.ts` 的 HostContext/loader 绑定用例 |
 | 提示后正确 ≠ 独立检索成功；阅读讲解不更新记忆 | `aeh/memory.py` | `tests/test_memory.py` |
 | 假设权重在 spawn/split/merge/prune/reweight 后保持归一化 | `aeh/hypothesis.py` | `tests/test_hypothesis.py` |
 | 被门禁拒绝的候选不能交付给学生 | `aeh/exercise.py` | `tests/test_exercise.py` |
@@ -224,7 +234,7 @@ node --test tests/*.test.ts
 13 个离线不变量测试覆盖门禁拒绝、preview 锁定、模拟事件隔离、证据绑定 mastery、回滚、
 阅读/提示/独立作答权重、FSRS 反解、假设归一化、诊断门禁复检与跳过、干预包
 训练/迁移隔离、默认权限拒绝、插件注册与卸载，以及无宿主授权时的 fail-closed。
-（Step 8 后 `node --test tests/*.test.ts` 共 112 个测试，见下文。）
+（Step 9 后 `node --test tests/*.test.ts` 共 131 个测试，见下文。）
 
 可选类型检查（需要先 `npm install` 安装 devDependencies）：
 
@@ -559,12 +569,93 @@ prompt/payload/密钥类键，工具审计从不记录参数。`SecurityError` �
 - **未完成**：跨进程/跨副本分布式限流、按工具/租户差异化配额、locale 展示、
   对抗性注入（同形字/编码混淆/多轮外泄）的持续红队，以及真实身份/同意网关。
 
+## Step 9：课程图谱与题库（规范 §3）
+
+Step 9 只在 `aeh/`、`dsh-plugin/`、`tests/` 与文档内工作，不修改运行用 dsh
+（`~/.dsh/` 配置与存储、`~/workspace/deepseek-harness` 源码克隆、npx 安装的 dsh），
+不把 AEH 插件加载进正在执行本任务的 harness 会话；`references/` 与 `spec/` 只读。
+所有图节点、边、题目标注、审核人和学生引用均为合成内容；题库记录**不包含**题干、
+答案、提示、解题步骤或图片，只保存结构化标注与版本/审核元数据。
+
+### 9.1 Python 核心：`aeh/curriculum_graph.py`
+
+- **KC 图**：`KnowledgeGraph` 是不可变、带版本号的图。节点与边先校验：未知节点类型/
+  关系/边状态、重复节点、重复边、自环、未知端点、`confidence` 越界一律拒绝。
+  `REQUIRES` 与 `PART_OF` 的 approved 边还要通过环检测；非法版本不会进入
+  `KnowledgeGraphStore`。
+- **边方向与可信度**：`A --REQUIRES--> B` 表示 A 需要先学 B，因此
+  `prerequisite_closure(A)` 包含 B 及其传递前置。只有 `approved` 边是权威前置；
+  LLM/统计产生的 `proposed` 边保留在图中供审核，但不进入闭包、不算先修、也不触发
+  环拒绝。
+- **版本化**：`KnowledgeGraphStore` append-only，版本必须严格递增；每个版本有
+  SHA-256 内容摘要（完整性，不是签名），`diff(from, to)` 给出新增/删除的节点与边。
+  Python 与 TypeScript 使用同一套 canonical JSON 规则，测试断言共享 fixture 的图哈希
+  完全一致。
+- **题库**：`ItemAnnotation` 覆盖规范 §3.3 的核心标签（source/license/stage/course、
+  KC、Q-matrix、难度、题型、时长、verifier、安全/内容/正确性标注、置信度等）；
+  `ItemBank` 保存不可变版本历史与追加式审核记录（submit/approve/reject/
+  request_changes）。内容修订会产生新版本、版本号递增，并把审核状态重置为
+  `draft`；旧版本的批准不能自动继承。缺失标注的条目可以被保存为草稿，但不能被
+  批准，且 `to_curriculum_item()` 会显式标记 `annotations_complete=False`，课程门禁
+  以 `incomplete_annotations` 拒绝。
+- **低置信度**：批准不替代门禁；即使条目已批准，`annotation_confidence` 低于阈值
+  仍会被 `allow()` 以 `low_annotation_confidence` 拒绝（fail-closed）。
+- **本地内存 RAG**：`ItemBank.search(RetrievalQuery)` 只索引当前 approved 版本，按
+  KC（required KC 与 Q-matrix）、难度区间/目标、题型做合取过滤，返回 opaque
+  `itemId`、分数与标注摘要；`RetrievalHit.summary()` 没有题干/答案/提示/解法字段。
+- **检索后门禁**：`plan_retrieval()` 先检索，再对每个命中重新解析当前 item、跑
+  `allow()`，并检查传递前置闭包。只有同时通过两者的命中进入 `candidates`；前置
+  未满足得到 `prerequisites_not_met:<kc>`，未知 KC 得到 `kc_not_in_graph:<kc>`，
+  图缺失得到 `blocked_reason="graph_unavailable"`。因此**前置未满足的 KC 对应题目
+  不会交付**。
+
+### 9.2 TypeScript 对应实现与宿主边界
+
+- `dsh-plugin/src/core/curriculum-graph.ts` 是 Python 模块的逐项对应：同样的常量、
+  错误类别、图校验/闭包/拓扑序/版本 diff、题库版本与审核状态机、检索评分和拒绝
+  原因字符串。
+- `HostContext` 新增可选的 `resolveGraph()` 与 `retrieveItems(query)`；
+  `MemoryHostContext` 可接收宿主构造的 `itemBank` 与 `graph`，把题库当前版本加入
+  可读 catalog，并在撤回 `curriculum:read` 后让图、题库 item 与检索结果一起
+  fail-closed。`toHostBinding()` 也显式转发这两个方法，保证 Cordis loader 只复制
+  数据属性时授权闭包仍然有效。
+- `AehEducationService.retrieveCandidatesFor(studentRef, query, mode)` 的流程是：
+  宿主解析 progress → 宿主解析图/检索 → 逐条 `resolveItem` → 现有
+  `checkCurriculum` 门禁 → 前置闭包检查。`hits` 只是不可交付的 opaque 摘要，
+  `candidates` 才是可进入后续准备流程的子集；没有图、没有检索适配器、未知 item、
+  未知 KC 或前置未满足都只产生拒绝，不会产生候选。
+- 未新增模型可调用工具：Step 9 的检索接口是宿主/服务层 API，插件工具目录仍是六个。
+  这避免模型直接控制题库、图或绕过门禁；真实部署中“把候选转成工具输出”仍需宿主
+  审批与交付流程。
+
+### 9.3 测试与隔离验证
+
+- Python：`tests/test_curriculum_graph.py`（22）覆盖闭包/拓扑序、环/自环/重复/未知
+  端点拒绝、proposed 边不入闭包、版本 append-only 与 diff、题库修订/审核状态机、
+  缺失标注不可批准与门禁 fail-closed、检索过滤、前置未满足拒绝、缺失图/未知 KC
+  拒绝，以及共享 fixture 的哈希/顺序/分数/候选/拒绝原因。
+- TypeScript：`dsh-plugin/tests/curriculum-graph.test.ts`（19）覆盖同一组行为，并
+  额外覆盖 `MemoryHostContext` 的图/题库解析、`toHostBinding()` 闭包、同意撤回、
+  服务层检索后门禁与未知命中拒绝。
+- 共享 fixture：`tests/fixtures/curriculum_step9.json`（合成）同时被 Python 与
+  TypeScript 读取；图内容哈希、前置闭包、拓扑序、检索分数、候选与拒绝原因必须
+  完全一致。
+- 全量结果：`python3 -m unittest discover -s tests -v` 242 通过；
+  `node --test tests/*.test.ts` 131 通过；`npm run typecheck` 通过；
+  `npm run evidence:loader` 仍在独立隔离 Cordis/dsh 实例中成功（仅加载既有六个工具，
+  未把插件加载进本任务会话）。
+- **未完成/残留**：真实教材/文档索引、BM25/向量/交叉编码重排、生产图数据库与题库
+  服务、真实教师审核工作流与权限、真实题目文本/答案/图片的存储与版权/安全审核、
+  跨租户图谱隔离、图变更的审批与回滚流程、把检索候选接入真实交付/UI。当前实现是
+  合成数据上的内存模型，不宣称生产可用。
+
 ## 目录结构
 
 ```text
 aeh/
   __init__.py
   curriculum_gate.py   # 规范 §4.3 fail-closed 课程门禁
+  curriculum_graph.py  # Step 9 版本化 KC 图 / 题库 / 本地 RAG / 检索后门禁
   twin.py              # 规范 §5 长期孪生：事件溯源 / 版本 / 回滚
   memory.py            # 规范 §8.3–8.6 FSRS 风格记忆模型
   hypothesis.py        # 规范 §6 短期虚拟学生假设集合
@@ -576,13 +667,13 @@ aeh/
   eval_cli.py          # Step 5 可运行评测入口（python -m aeh.eval_cli）
   evolution.py         # Step 6 受控自进化骨架（规范 §27，宿主侧）
   demo.py              # Step 2 命令行入口（python -m aeh.demo）
-dsh-plugin/            # Step 3+4+5+6+7+8 TypeScript dsh / Cordis 教育插件
+dsh-plugin/            # Step 3+4+5+6+7+8+9 TypeScript dsh / Cordis 教育插件
   src/index.ts         # Cordis 插件入口（name / inject / Config / apply）
   src/dsh.ts           # 真实 cordis / dsh-tools 薄 authoring 适配层
   src/config.ts        # Step 7 Schemastery 配置校验（fail loud）+ Step 8 security 块
   src/security.ts      # Step 8 注入/越权/payload/限流/脱敏守卫
   src/output-schemas.ts # Step 7 六个工具的闭合输出 schema
-  src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包
+  src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包、Step 9 课程图/题库/RAG
   src/host/            # 内存同意 / HostContext / 孪生 / 交付适配器
   src/host/file-event-store.ts  # Step 5 默认关闭的文件事件存储
   src/host/evolution.ts         # Step 6 宿主侧受控自进化控制面（非工具）
@@ -592,12 +683,13 @@ dsh-plugin/            # Step 3+4+5+6+7+8 TypeScript dsh / Cordis 教育插件
   src/tools.ts         # 六个教育工具 + Step 8 安全/审计包装
   src/permissions.ts   # 默认最小权限
   scripts/             # 隔离 loader 加载证据脚本
-  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7 + Step 8
+  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7 + Step 8 + Step 9
   package.json         # 真实 @deepseek-ai/* 依赖（只装在本目录）
 docs/
-  dsh-integration.md   # Step 3+4+5+6+7+8 映射、权限与完成情况
+  dsh-integration.md   # Step 3+4+5+6+7+8+9 映射、权限与完成情况
   evaluation-report-template.md  # Step 5 评测报告模板
 tests/                 # Python 标准库 unittest 测试
+  fixtures/curriculum_step9.json  # Step 9 Python/TS 共享的合成图谱与题库 fixture
 .github/workflows/ci.yml
 spec/                  # 规范全文（只读，不修改）
 references/            # 本地参考仓库（只读，已被 .gitignore 忽略，不提交）
@@ -645,7 +737,7 @@ Step 6 的受控自进化骨架（合成数据，离线，纯内存）：
 python3 -m unittest discover -s tests -p 'test_evolution.py' -v
 ```
 
-Step 3+4+5+6+7+8 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
+Step 3+4+5+6+7+8+9 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
 依赖，只安装在 `dsh-plugin/` 内（独立缓存），不会加载进运行中的 dsh，也不读写
 `~/.dsh/`：
 
@@ -657,10 +749,10 @@ node --test tests/*.test.ts
 npm run evidence:loader    # 隔离 Cordis loader 加载/卸载证据
 ```
 
-Node 测试分八层：13 个离线不变量测试、12 个宿主适配器测试、8 个报告边界测试、
+Node 测试分层：13 个离线不变量测试、12 个宿主适配器测试、8 个报告边界测试、
 8 个文件事件存储测试、22 个宿主侧自进化测试、7 个真实 Cordis/dsh 运行时契约测试、
-23 个 Step 7 加固测试、19 个 Step 8 安全测试，全部使用合成引用，共 112 个。
-Python 侧共 220 个测试。
+23 个 Step 7 加固测试、19 个 Step 8 安全测试、19 个 Step 9 课程图/题库/检索测试，
+全部使用合成引用，共 131 个。Python 侧共 242 个测试（Step 9 新增 22 个）。
 
 ## CI
 
@@ -735,7 +827,7 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
   权限、隐私、真实-模拟隔离等受保护不变量，不能写生产文件；审批默认拒绝、灰度仅
   合成会话比例、带熔断与回滚，全链路追加式审计不含原始学生数据。审批与回滚只在
   宿主侧调用，不新增模型工具。
-- Step 3+4+5+6+7+8 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
+- Step 3+4+5+6+7+8+9 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
   凭据、文件或网络权限，observed 孪生写、干预交付与自进化审批/回滚不属于模型工具。
   隔离测试只使用合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
 - Step 7 配置非法即 fail loud（不静默回退默认值）；六个工具输出 schema 顶层闭合，
