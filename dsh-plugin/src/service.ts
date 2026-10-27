@@ -7,7 +7,6 @@
  */
 
 import {
-  GATE_MODES,
   type CurriculumItem,
   type DiagnosticCandidateInput,
   type GateDecision,
@@ -47,6 +46,10 @@ import {
   packageFromInput,
   validatePackage,
 } from './core/exercise.ts'
+import {
+  resolveAehConfig,
+  type ResolvedAehConfig,
+} from './config.ts'
 
 export interface Config {
   /** `student-facing` is the only intended deployment for model tools. */
@@ -55,11 +58,8 @@ export interface Config {
   readonly allowedModes?: readonly GateMode[]
 }
 
-export interface ResolvedConfig {
-  readonly profile: 'student-facing' | 'host-side'
-  readonly targetRetention: number
-  readonly allowedModes: readonly GateMode[]
-}
+/** Resolved, frozen config (same shape as the Schemastery output). */
+export type ResolvedConfig = ResolvedAehConfig
 
 /**
  * Host-owned resolution boundary.
@@ -72,6 +72,8 @@ export interface ResolvedConfig {
 export interface HostContext {
   /** When set, only this student reference is readable in the current session. */
   readonly authorizedStudentRef?: string
+  /** Host-issued opaque tenant reference, when the adapter exposes one. */
+  readonly tenantRef?: string
   resolveProgress(studentRef: string): LearnerProgress | undefined
   resolveItem(itemId: string): CurriculumItem | undefined
 }
@@ -81,30 +83,16 @@ export const NO_HOST_CONTEXT: HostContext = Object.freeze({
   resolveItem: () => undefined,
 })
 
+/**
+ * Validate and freeze a plugin config through the Schemastery schema.
+ *
+ * This is the single configuration validation path: the Cordis loader uses the
+ * exported `Config` schema before `apply` runs, and direct/embedded callers
+ * use this function. Illegal values throw {@link ConfigValidationError} rather
+ * than silently falling back to defaults.
+ */
 export function normalizeConfig(config: Config = {}): ResolvedConfig {
-  const profile = config.profile ?? 'student-facing'
-  if (profile !== 'student-facing' && profile !== 'host-side') {
-    throw new RangeError(`unknown plugin profile: ${String(profile)}`)
-  }
-  const targetRetention = config.targetRetention ?? 0.9
-  if (
-    !Number.isFinite(targetRetention) ||
-    targetRetention <= 0 ||
-    targetRetention >= 1
-  ) {
-    throw new RangeError('targetRetention must be within (0, 1)')
-  }
-  const allowedModes = config.allowedModes ?? GATE_MODES
-  for (const mode of allowedModes) {
-    if (!(GATE_MODES as readonly string[]).includes(mode)) {
-      throw new RangeError(`unknown gate mode: ${String(mode)}`)
-    }
-  }
-  return Object.freeze({
-    profile,
-    targetRetention,
-    allowedModes: Object.freeze([...allowedModes]),
-  })
+  return resolveAehConfig(config)
 }
 
 export type HypothesisOperation =
@@ -235,6 +223,14 @@ export class AehEducationService {
   constructor(config: Config = {}, host: HostContext = NO_HOST_CONTEXT) {
     this.config = normalizeConfig(config)
     this.host = host
+  }
+
+  /** Host-issued opaque tenant reference, when the adapter exposes one. */
+  get tenantRef(): string | undefined {
+    const tenantRef = this.host.tenantRef
+    return typeof tenantRef === 'string' && tenantRef.length > 0
+      ? tenantRef
+      : undefined
   }
 
   /** Resolve an authorised progress snapshot; null means fail closed. */

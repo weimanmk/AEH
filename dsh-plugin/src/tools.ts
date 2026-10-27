@@ -11,6 +11,7 @@ import {
   defineTool,
   renderJson,
   throwIfAborted,
+  type AehToolExec,
   type ToolDefinition,
 } from './dsh.ts'
 import {
@@ -20,6 +21,23 @@ import {
   type AggregateEventInput,
   type Audience,
 } from './report.ts'
+import {
+  gateDecisionOutputSchema,
+  hypothesisResultOutputSchema,
+  preparedInterventionOutputSchema,
+  probePlanOutputSchema,
+  reportOutputSchema,
+  reviewOutputSchema,
+} from './output-schemas.ts'
+import { HypothesisError } from './domain.ts'
+import type {
+  AehAuditLog,
+} from './host/audit-log.ts'
+import {
+  scopeFromExecution,
+  SessionSnapshotStore,
+  type SessionSnapshotRecord,
+} from './host/session-state.ts'
 import type {
   GateMode,
   HypothesisRecord,
@@ -200,7 +218,10 @@ interface GateToolArgs {
 }
 
 interface HypothesisToolArgs {
-  readonly state: HypothesisState
+  /** Required unless `snapshotRef` loads the previous session snapshot. */
+  readonly state?: HypothesisState
+  /** Session-scoped snapshot reference returned by a previous call. */
+  readonly snapshotRef?: string
   readonly operation: 'snapshot' | 'spawn' | 'split' | 'merge' | 'prune' | 'reweight'
   readonly hypothesis?: HypothesisRecord
   readonly weight?: number
@@ -254,11 +275,115 @@ function requireValue<T>(value: T | undefined, name: string): T {
   return value
 }
 
-/** Build the five tool definitions for one plugin instance. */
+function errorCode(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const code = (error as { code?: unknown }).code
+    if (typeof code === 'string' && code.length > 0) return code
+    const name = (error as { name?: unknown }).name
+    if (typeof name === 'string' && name.length > 0) return name
+  }
+  return 'AEH_TOOL_ERROR'
+}
+
+function auditStudentRef(args: unknown): string | undefined {
+  const studentRef = (args as { studentRef?: unknown } | undefined)?.studentRef
+  return typeof studentRef === 'string' && studentRef.length > 0
+    ? studentRef
+    : undefined
+}
+
+/** Wrap one definition so every tool call lands in the append-only audit log. */
+function withAudit(
+  tool: ToolDefinition,
+  audit: AehAuditLog,
+  tenantRef: string | undefined,
+): ToolDefinition {
+  const inner = tool.execute
+  return {
+    ...tool,
+    async execute(args: unknown, exec?: AehToolExec) {
+      const studentRef = auditStudentRef(args)
+      try {
+        const value = await inner(args, exec)
+        audit.recordToolCall({
+          tool: tool.name,
+          outcome: 'accepted',
+          studentRef,
+          tenantRef,
+        })
+        return value
+      } catch (error) {
+        audit.recordToolCall({
+          tool: tool.name,
+          outcome: 'rejected',
+          reasonCode: errorCode(error),
+          studentRef,
+          tenantRef,
+        })
+        throw error
+      }
+    },
+  }
+}
+
+function applyHypothesisOperation(
+  service: AehEducationService,
+  state: HypothesisState,
+  args: HypothesisToolArgs,
+) {
+  switch (args.operation) {
+    case 'snapshot':
+      return service.manageHypotheses(state, { kind: 'snapshot' })
+    case 'spawn':
+      return service.manageHypotheses(state, {
+        kind: 'spawn',
+        hypothesis: requireValue(args.hypothesis, 'hypothesis'),
+        weight: args.weight,
+      })
+    case 'split':
+      return service.manageHypotheses(state, {
+        kind: 'split',
+        hypothesisId: requireValue(args.hypothesisId, 'hypothesisId'),
+        children: requireValue(args.children, 'children'),
+      })
+    case 'merge':
+      return service.manageHypotheses(state, {
+        kind: 'merge',
+        hypothesisIds: requireValue(args.hypothesisIds, 'hypothesisIds'),
+        merged: requireValue(args.merged, 'merged'),
+      })
+    case 'prune':
+      return service.manageHypotheses(state, {
+        kind: 'prune',
+        hypothesisId: requireValue(args.hypothesisId, 'hypothesisId'),
+        reason: args.reason,
+      })
+    case 'reweight':
+      return service.manageHypotheses(state, {
+        kind: 'reweight',
+        likelihoods: requireValue(args.likelihoods, 'likelihoods'),
+        noise: args.noise,
+        evidenceRef: args.evidenceRef,
+        unknownPrior: args.unknownPrior,
+        unknownLikelihood: args.unknownLikelihood,
+      })
+  }
+}
+
+export interface EducationToolOptions {
+  /** Optional append-only audit sink for tool calls and gate decisions. */
+  readonly audit?: AehAuditLog
+  /** Optional session/agent-scoped short-term hypothesis snapshot store. */
+  readonly snapshots?: SessionSnapshotStore
+}
+
+/** Build the six tool definitions for one plugin instance. */
 export function createEducationTools(
   service: AehEducationService,
+  options: EducationToolOptions = {},
 ): readonly ToolDefinition[] {
-  return [
+  const { audit, snapshots } = options
+  const definitions: ToolDefinition[] = [
     defineTool({
       name: 'aeh_check_curriculum',
       timeoutMs: AEH_TOOL_TIMEOUT_MS,
@@ -283,12 +408,25 @@ export function createEducationTools(
           description: 'Opaque authorised student reference for this session.',
         },
       },
-      output: { schema: { type: 'json' }, render: renderJson },
+      output: { schema: gateDecisionOutputSchema, render: renderJson },
       async execute(raw, exec) {
         throwIfAborted(exec)
         const args = raw as GateToolArgs
+        const decision = service.checkCurriculumFor(
+          args.studentRef,
+          args.itemId,
+          args.mode,
+        )
+        audit?.recordGateDecision({
+          studentRef: args.studentRef,
+          tenantRef: service.tenantRef,
+          itemId: decision.itemId,
+          mode: decision.mode,
+          allowed: decision.allowed,
+          reasons: decision.reasons,
+        })
         return {
-          ...service.checkCurriculumFor(args.studentRef, args.itemId, args.mode),
+          ...decision,
           policy: 'aeh.curriculum_gate.v1',
         }
       },
@@ -302,8 +440,13 @@ export function createEducationTools(
       parameters: {
         state: {
           ...hypothesisStateSchema,
-          required: true,
-          description: 'Current session hypothesis snapshot.',
+          description:
+            'Current session hypothesis snapshot; omit when snapshotRef is supplied.',
+        },
+        snapshotRef: {
+          type: 'string',
+          description:
+            'Session/agent-scoped snapshot reference from a previous call. Loaded only for the same dsh session; an unknown, foreign, or expired reference fails closed.',
         },
         operation: {
           type: 'string',
@@ -351,46 +494,54 @@ export function createEducationTools(
         },
         reason: { type: 'string', description: 'For prune: audit reason.' },
       },
-      output: { schema: { type: 'json' }, render: renderJson },
+      output: { schema: hypothesisResultOutputSchema, render: renderJson },
       async execute(raw, exec) {
         throwIfAborted(exec)
         const args = raw as HypothesisToolArgs
-        switch (args.operation) {
-          case 'snapshot':
-            return service.manageHypotheses(args.state, { kind: 'snapshot' })
-          case 'spawn':
-            return service.manageHypotheses(args.state, {
-              kind: 'spawn',
-              hypothesis: requireValue(args.hypothesis, 'hypothesis'),
-              weight: args.weight,
-            })
-          case 'split':
-            return service.manageHypotheses(args.state, {
-              kind: 'split',
-              hypothesisId: requireValue(args.hypothesisId, 'hypothesisId'),
-              children: requireValue(args.children, 'children'),
-            })
-          case 'merge':
-            return service.manageHypotheses(args.state, {
-              kind: 'merge',
-              hypothesisIds: requireValue(args.hypothesisIds, 'hypothesisIds'),
-              merged: requireValue(args.merged, 'merged'),
-            })
-          case 'prune':
-            return service.manageHypotheses(args.state, {
-              kind: 'prune',
-              hypothesisId: requireValue(args.hypothesisId, 'hypothesisId'),
-              reason: args.reason,
-            })
-          case 'reweight':
-            return service.manageHypotheses(args.state, {
-              kind: 'reweight',
-              likelihoods: requireValue(args.likelihoods, 'likelihoods'),
-              noise: args.noise,
-              evidenceRef: args.evidenceRef,
-              unknownPrior: args.unknownPrior,
-              unknownLikelihood: args.unknownLikelihood,
-            })
+        const scope = scopeFromExecution(exec)
+
+        let state = args.state
+        if (args.snapshotRef !== undefined) {
+          if (args.state !== undefined) {
+            throw new HypothesisError(
+              'provide either a state snapshot or a snapshotRef, not both',
+            )
+          }
+          if (scope === undefined || snapshots === undefined) {
+            throw new HypothesisError(
+              'snapshot_ref_requires_session_scope',
+            )
+          }
+          const loaded: SessionSnapshotRecord | undefined = snapshots.get(
+            args.snapshotRef,
+            scope,
+          )
+          if (loaded === undefined) {
+            throw new HypothesisError('snapshot_not_found_or_expired')
+          }
+          state = loaded.state
+        }
+        if (state === undefined) {
+          throw new HypothesisError(
+            'a state snapshot or snapshotRef is required',
+          )
+        }
+
+        const result = applyHypothesisOperation(service, state, args)
+        if (scope === undefined || snapshots === undefined) return result
+
+        const stored = snapshots.put(scope, {
+          state: result.state,
+          weights: result.weights,
+          dominantId: result.dominantId,
+          transitions: result.transitions,
+        })
+        return {
+          ...result,
+          snapshotRef: stored.snapshotRef,
+          snapshotExpiresAt: stored.expiresAt,
+          snapshotTtlMs: snapshots.ttl,
+          snapshotScope: { sessionScoped: true, agentScoped: true },
         }
       },
     }),
@@ -442,7 +593,7 @@ export function createEducationTools(
         },
         minScore: { type: 'number', description: 'Optional minimum score.' },
       },
-      output: { schema: { type: 'json' }, render: renderJson },
+      output: { schema: probePlanOutputSchema, render: renderJson },
       async execute(raw, exec) {
         throwIfAborted(exec)
         const args = raw as ProbeToolArgs
@@ -481,7 +632,7 @@ export function createEducationTools(
           description: 'Target retention in (0, 1); defaults to plugin config.',
         },
       },
-      output: { schema: { type: 'json' }, render: renderJson },
+      output: { schema: reviewOutputSchema, render: renderJson },
       async execute(raw, exec) {
         throwIfAborted(exec)
         const args = raw as ReviewToolArgs
@@ -515,7 +666,7 @@ export function createEducationTools(
           description: 'Optional delivery mode override.',
         },
       },
-      output: { schema: { type: 'json' }, render: renderJson },
+      output: { schema: preparedInterventionOutputSchema, render: renderJson },
       async execute(raw, exec) {
         throwIfAborted(exec)
         const args = raw as InterventionToolArgs
@@ -567,7 +718,7 @@ export function createEducationTools(
             'Optional caller scope list; it can only narrow the audience defaults.',
         },
       },
-      output: { schema: { type: 'json' }, render: renderJson },
+      output: { schema: reportOutputSchema, render: renderJson },
       async execute(raw, exec) {
         throwIfAborted(exec)
         const args = raw as ReportToolArgs
@@ -582,4 +733,8 @@ export function createEducationTools(
       },
     }),
   ]
+
+  return definitions.map((tool) =>
+    audit === undefined ? tool : withAudit(tool, audit, service.tenantRef),
+  )
 }
