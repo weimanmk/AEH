@@ -1,7 +1,7 @@
 # AEH — Adaptive Cognitive Twin Education Harness
 
 AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库对应
-[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9**：
+[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9 + Step 10**：
 Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之上增加一个完全离线的
 合成演示会话，以及只消费已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript
 的 dsh / Cordis 教育插件骨架；Step 4 把插件骨架的离线适配层替换为真实的
@@ -16,8 +16,12 @@ Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之�
 与交付回执，带不可反识别的学生/租户维度）；Step 8 在工具入口加固：提示注入/越权参数/
 超大 payload/单实例速率限制 fail-closed 并记入审计，错误与日志脱敏；Step 9 增加课程知识
 空间：版本化 KC 图（前置闭包/环检测/非法图拒绝）、带版本与审核记录的题库、本地内存
-RAG 检索接口，以及“检索结果必须再过课程门禁 + 前置闭包”的候选准入。Step 9 只使用
-合成标注，不包含真实题目原文、答案、提示或学生数据。
+RAG 检索接口，以及“检索结果必须再过课程门禁 + 前置闭包”的候选准入；Step 10 增加习题
+演化引擎（数值/情境/干扰项/难度/诊断指向性变式，每个候选带来源、声明式变更与受影响
+KC，先过课程门禁再进隔离沙箱评测）与动态模拟实验室（独立会话状态与独立假设快照、
+模拟事件永不写入 `observed`、实验配置与结果可用 seed/配置版本/结果摘要复现，模拟收益
+与真实迁移分通道报告）。Step 9 与 Step 10 只使用合成标注，不包含真实题目原文、答案、
+提示或学生数据。
 
 当前状态：**核心骨架 + 合成演示 + 已在隔离实例中验证的插件，不是生产系统**。
 Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真实 `@deepseek-ai/*`
@@ -60,6 +64,14 @@ Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真�
   真实迁移分开，评测不通过/证据不足自动拒绝）、显式且默认拒绝的宿主审批、仅作用于
   合成会话比例的灰度与熔断回滚，全链路追加式审计且不含原始学生数据。审批与回滚
   **只由宿主侧调用**，不是模型工具。
+- 一个习题演化引擎（Python `aeh/exercise_evolution.py` + TypeScript
+  `dsh-plugin/src/core/exercise-evolution.ts`）：五种受控算子（数值/情境/干扰项/难度/
+  诊断指向性变式）只重采样合成参数与情境，不生成题干文本；每个候选都带来源 item 与
+  版本、声明式变更、受影响 KC 和确定性 seed，先通过 fail-closed 课程门禁与前置闭包
+  检查，再进入隔离沙箱评测；候选池只接受“沙箱筛查合格 + 题库审核通过”的候选。
+- 一个动态模拟实验室：模拟会话使用独立状态与独立假设快照，事件日志只接受 simulated
+  来源，`observedWrites` 恒为 0；配置（seed/版本/场景）与结果内容寻址，可用整数微单位
+  指纹复现；模拟收益与真实迁移分开报告，模拟收益永不支撑真实学习或迁移结论。
 
 ## 这不是什么
 
@@ -105,6 +117,9 @@ Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真�
 | 自进化候选不能改门禁/权限/隐私，不能写生产文件，不能自我批准或自我回滚 | `aeh/evolution.py`、`dsh-plugin/src/host/evolution.ts` | `tests/test_evolution.py`、`dsh-plugin/tests/evolution.test.ts` |
 | 评测不通过或证据不足自动拒绝；模拟收益不能单独作为晋升依据 | `aeh/evolution.py`、`dsh-plugin/src/host/evolution.ts` | `tests/test_evolution.py`、`dsh-plugin/tests/evolution.test.ts` |
 | 审批显式且默认拒绝；灰度仅合成比例、带熔断与回滚；全链路审计无原始数据 | `aeh/evolution.py`、`dsh-plugin/src/host/evolution.ts` | `tests/test_evolution.py`、`dsh-plugin/tests/evolution.test.ts` |
+| 演化候选带来源/变更/受影响 KC，先过课程门禁与前置闭包再进隔离沙箱 | `aeh/exercise_evolution.py`、`dsh-plugin/src/core/exercise-evolution.ts` | `tests/test_exercise_evolution.py`、`dsh-plugin/tests/exercise-evolution.test.ts` |
+| 模拟会话隔离、模拟事件绝不写入 `observed`；配置与结果可复现 | `aeh/exercise_evolution.py`、`dsh-plugin/src/core/exercise-evolution.ts` | 同上 |
+| 模拟收益与真实迁移分通道报告；候选池不能绕过沙箱筛查与题库审核 | `aeh/exercise_evolution.py`、`dsh-plugin/src/core/exercise-evolution.ts` | 同上 |
 
 另外，`tests/test_invariants.py` 用端到端断言直接命名并覆盖了 TASKS.md 要求的四条
 Step 1 不变量。Step 2 的测试额外覆盖“演示不接真实数据”和“报告不泄露原始数据”；
@@ -649,6 +664,82 @@ Step 9 只在 `aeh/`、`dsh-plugin/`、`tests/` 与文档内工作，不修改�
   跨租户图谱隔离、图变更的审批与回滚流程、把检索候选接入真实交付/UI。当前实现是
   合成数据上的内存模型，不宣称生产可用。
 
+## Step 10：习题演化引擎与动态模拟实验室（规范 §9、§11）
+
+Step 10 继续只在 `aeh/`、`dsh-plugin/`、`tests/` 与文档内工作，不修改运行用 dsh
+（`~/.dsh/` 配置与存储、`~/workspace/deepseek-harness` 源码克隆、npx 安装的 dsh），
+不把 AEH 插件加载进正在执行本任务的 harness 会话；`references/` 与 `spec/` 只读。
+演化只操作结构化的合成标注与受控参数，**不生成题干、答案、提示或图片文本**；模拟
+实验室只在内存中对合成行为模型采样，不写任何 `observed`/真实存储。
+
+### 10.1 Python 核心：`aeh/exercise_evolution.py`
+
+- **五种受控算子**：`numeric`（在同一 KC 与年级带内重采样数值参数）、`context`
+  （替换表层情境，结构不变）、`distractor`（仅限 `multiple_choice`，重生干扰项并
+  保持正确项与所需推理不变）、`difficulty`（在 [0,1] 内调节难度并按比例缩放预计
+  时长）、`diagnostic`（把变式指向某个误区，使两个假设产生不同的可观察步）。
+- **来源与可追溯**：`EvolutionCandidate` 携带 `provenance`（来源 item id 与版本、
+  算子、声明式 `changes`、受影响 KC、确定性 seed、生成器版本）；候选
+  `candidate_id = cand.<source>.<operator>.<seed>`、`proposed_item_id =
+  evo.<source>.<operator>.<seed>`，演化后的标注 `source` 标记为
+  `synthetic.evolved.<operator>`、`exposure_count` 归零，并冻结为内容寻址哈希。
+- **fail-closed 校验**：`ExerciseEvolutionEngine.validate()` 复用课程门禁 `allow()`
+  并检查缺失标注、缺失图与传递前置闭包；未授/超前 KC、低进度置信度、缺失前置、
+  未知 KC、标注不完整或图缺失都使候选无效。
+- **隔离沙箱**：只有通过门禁的候选才进入 `EvolutionSandbox`。沙箱用独立假设快照
+  跑模拟，产出 `simulated_benefit`（永远 `is_causal_evidence=false`）与独立的
+  `real_transfer` 通道；没有真实冻结迁移集与独立观测就永远是
+  `promotion_blocked:real_transfer_evidence_missing`，绝不把模拟收益当作真实效果。
+- **候选池**：`EvolutionCandidatePool.admit()` 要求候选可交付（沙箱筛查通过）、
+  item-bank 记录为同一 `proposed_item_id` 且已 `approved`、`observed_writes == 0`；
+  否则抛 `CandidatePoolError`。演化**不能绕过**课程门禁或题库审核。
+
+### 10.2 动态模拟实验室
+
+- **会话隔离**：每个 `SimulationSession` 从快照构造**私有** `HypothesisSet`，对
+  会话重加权不会改动源假设；事件日志 `SimulationEventLog` 只接受
+  `simulated`/`virtual_student`/`simulation` 来源，任何真实来源都抛
+  `SimulationIsolationError`；`observedWrites` 恒为 0。
+- **可复现**：`SimulationConfig`（config 版本、场景、候选、seed、阶段计划、
+  maxSteps）与 `HypothesisSnapshot` 都做 canonical JSON 内容寻址；结果指纹只对整数
+  微单位（概率、正确率、增益、置信区间）与逐步 `phase/item/hypothesis/correct`
+  计算，因此 Python 与 TypeScript 在相同 seed/配置/快照上得到**逐字节一致**的结果
+  指纹。
+- **分通道报告**：`SimulationResult.real_transfer` 恒为 `null`，`simulated_benefit`
+  显式标注 `channel="simulated"` 与 `is_causal_evidence=false`；真实迁移只能来自
+  可信来源（`student`/`teacher`/`trusted_grader`/`assessment`）与冻结的 unseen
+  迁移集，且仍然只作描述性结论（`causal_claim_supported=false`）。
+
+### 10.3 TypeScript 对应实现与确定性
+
+- `dsh-plugin/src/core/exercise-evolution.ts` 与 Python 版逐项对应：同样的算子集合、
+  错误类别、候选哈希、沙箱裁决、候选池准入规则与模拟指纹；因 TS 侧没有评测模块，
+  真实迁移通道在该文件内联实现（冻结迁移集 + 可信来源 + unseen + 单来源校验）。
+- **确定性原语双实现**：`mulberry32`（用 `Math.imul` 模拟 32 位运算）、FNV-1a 32、
+  JS 舍入语义 `jsRound(x)=floor(x+0.5)`、四位小数 `round4` 与整数微单位
+  `quantizeMicros` 在 Python/TypeScript 两侧行为一致。
+- **未新增模型工具**：Step 10 的引擎与实验室是核心/宿主侧 API，插件工具目录仍是六个。
+
+### 10.4 测试与隔离验证
+
+- Python：`tests/test_exercise_evolution.py`（48）覆盖 RNG/哈希原语、五种算子、
+  provenance、门禁/前置/缺失图 fail-closed、沙箱独立通道、真实迁移 gating、候选池
+  必须“沙箱合格 + 审核通过”、模拟隔离与不可复现 seed 的区分，以及共享 fixture
+  的哈希/指纹一致性。
+- TypeScript：`dsh-plugin/tests/exercise-evolution.test.ts`（21）覆盖同一组行为与
+  共享 fixture 逐字节一致性。
+- 共享 fixture：`tests/fixtures/exercise_evolution_step10.json`（合成）同时被 Python
+  与 TypeScript 读取；RNG 微单位、FNV 哈希、候选哈希、模拟结果指纹/会话 id/逐步
+  正确性与假设 id 必须完全一致。
+- 全量结果：`python3 -m unittest discover -s tests` 290 通过（Step 10 新增 48）；
+  `node --test tests/*.test.ts` 152 通过（Step 10 新增 21）；`npm run typecheck` 通过；
+  `npm run evidence:loader` 仍在独立隔离 Cordis/dsh 实例中成功（仅既有六个工具，未把
+  插件加载进本任务会话）。
+- **未完成/残留**：真实题目文本/答案/图片生成与安全审核、真实内容库/题型模板、
+  真实学生行为校准（当前模拟是合成行为模型）、真实对照/延迟保持迁移实验、跨进程
+  模拟调度与持久化、把演化候选接入真实交付/UI。当前实现是合成数据上的
+  Python/TypeScript 双实现骨架，不宣称生产可用。
+
 ## 目录结构
 
 ```text
@@ -661,19 +752,20 @@ aeh/
   hypothesis.py        # 规范 §6 短期虚拟学生假设集合
   diagnosis.py         # 规范 §7 区分性诊断题选择
   exercise.py          # 规范 §9.2/9.4 干预包与交付校验
+  exercise_evolution.py # Step 10 习题演化引擎与隔离模拟实验室（规范 §9、§11）
   demo_session.py      # Step 2 合成拍题/批改/诊断/复习闭环
   report.py            # Step 2 已授权聚合事件的教师/家长报告
   evaluation.py        # Step 5 独立冻结评测协议（规范 §19，防自证）
   eval_cli.py          # Step 5 可运行评测入口（python -m aeh.eval_cli）
   evolution.py         # Step 6 受控自进化骨架（规范 §27，宿主侧）
   demo.py              # Step 2 命令行入口（python -m aeh.demo）
-dsh-plugin/            # Step 3+4+5+6+7+8+9 TypeScript dsh / Cordis 教育插件
+dsh-plugin/            # Step 3+4+5+6+7+8+9+10 TypeScript dsh / Cordis 教育插件
   src/index.ts         # Cordis 插件入口（name / inject / Config / apply）
   src/dsh.ts           # 真实 cordis / dsh-tools 薄 authoring 适配层
   src/config.ts        # Step 7 Schemastery 配置校验（fail loud）+ Step 8 security 块
   src/security.ts      # Step 8 注入/越权/payload/限流/脱敏守卫
   src/output-schemas.ts # Step 7 六个工具的闭合输出 schema
-  src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包、Step 9 课程图/题库/RAG
+  src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包、Step 9 课程图/题库/RAG、Step 10 演化/模拟
   src/host/            # 内存同意 / HostContext / 孪生 / 交付适配器
   src/host/file-event-store.ts  # Step 5 默认关闭的文件事件存储
   src/host/evolution.ts         # Step 6 宿主侧受控自进化控制面（非工具）
@@ -683,13 +775,14 @@ dsh-plugin/            # Step 3+4+5+6+7+8+9 TypeScript dsh / Cordis 教育插件
   src/tools.ts         # 六个教育工具 + Step 8 安全/审计包装
   src/permissions.ts   # 默认最小权限
   scripts/             # 隔离 loader 加载证据脚本
-  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7 + Step 8 + Step 9
+  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7 + Step 8 + Step 9 + Step 10
   package.json         # 真实 @deepseek-ai/* 依赖（只装在本目录）
 docs/
-  dsh-integration.md   # Step 3+4+5+6+7+8+9 映射、权限与完成情况
+  dsh-integration.md   # Step 3+4+5+6+7+8+9+10 映射、权限与完成情况
   evaluation-report-template.md  # Step 5 评测报告模板
 tests/                 # Python 标准库 unittest 测试
   fixtures/curriculum_step9.json  # Step 9 Python/TS 共享的合成图谱与题库 fixture
+  fixtures/exercise_evolution_step10.json  # Step 10 Python/TS 共享的演化与模拟 fixture
 .github/workflows/ci.yml
 spec/                  # 规范全文（只读，不修改）
 references/            # 本地参考仓库（只读，已被 .gitignore 忽略，不提交）
@@ -737,7 +830,7 @@ Step 6 的受控自进化骨架（合成数据，离线，纯内存）：
 python3 -m unittest discover -s tests -p 'test_evolution.py' -v
 ```
 
-Step 3+4+5+6+7+8+9 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
+Step 3+4+5+6+7+8+9+10 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
 依赖，只安装在 `dsh-plugin/` 内（独立缓存），不会加载进运行中的 dsh，也不读写
 `~/.dsh/`：
 
@@ -751,8 +844,9 @@ npm run evidence:loader    # 隔离 Cordis loader 加载/卸载证据
 
 Node 测试分层：13 个离线不变量测试、12 个宿主适配器测试、8 个报告边界测试、
 8 个文件事件存储测试、22 个宿主侧自进化测试、7 个真实 Cordis/dsh 运行时契约测试、
-23 个 Step 7 加固测试、19 个 Step 8 安全测试、19 个 Step 9 课程图/题库/检索测试，
-全部使用合成引用，共 131 个。Python 侧共 242 个测试（Step 9 新增 22 个）。
+23 个 Step 7 加固测试、19 个 Step 8 安全测试、19 个 Step 9 课程图/题库/检索测试、
+21 个 Step 10 演化/模拟测试，全部使用合成引用，共 152 个。Python 侧共 290 个测试
+（Step 9 新增 22 个，Step 10 新增 48 个）。
 
 ## CI
 
@@ -807,6 +901,10 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
 - 速率限制、locale 与跨进程并发控制：Step 8 已在工具入口实现单实例内存限流
   （按 session 与 `studentRef`）、提示注入/越权/超大 payload 拒绝与错误审计脱敏；
   跨进程/跨副本分布式限流、按工具/租户差异化配额、locale 展示与对抗性注入红队仍未做。
+- 习题演化与模拟实验室仍是合成骨架：没有真实题目文本/答案/图片生成与安全审核、
+  真实内容库/题型模板、真实学生行为校准、真实对照/延迟保持迁移实验、跨进程模拟
+  调度与持久化，也没有把演化候选接入真实交付/UI。模拟实验室只在内存中对合成行为
+  模型采样，不写任何真实存储。
 
 ## 安全约定
 
@@ -827,9 +925,13 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
   权限、隐私、真实-模拟隔离等受保护不变量，不能写生产文件；审批默认拒绝、灰度仅
   合成会话比例、带熔断与回滚，全链路追加式审计不含原始学生数据。审批与回滚只在
   宿主侧调用，不新增模型工具。
-- Step 3+4+5+6+7+8+9 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
-  凭据、文件或网络权限，observed 孪生写、干预交付与自进化审批/回滚不属于模型工具。
-  隔离测试只使用合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
+- Step 3+4+5+6+7+8+9+10 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、
+  DB 写、凭据、文件或网络权限，observed 孪生写、干预交付与自进化审批/回滚不属于模型
+  工具。隔离测试只使用合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
+- Step 10 演化只重采样结构化合成标注与受控参数，生成器与验证器分离（演化引擎先过
+  课程门禁，候选池再要求沙箱筛查合格与题库审核通过，`observed_writes` 必须为 0）；
+  模拟实验室的独立假设快照与只收 simulated 来源的事件日志保证模拟事件永不进入
+  `observed`，模拟收益与真实迁移分通道报告。
 - Step 7 配置非法即 fail loud（不静默回退默认值）；六个工具输出 schema 顶层闭合，
   越界返回被 dsh 判为 `INVALID_TOOL_OUTPUT`；假设快照绑定 session/agent scope、带
   TTL 与清理且不写长期孪生；审计 append-only、只收标量与原因码、递归拒绝原始学生
