@@ -1,4 +1,4 @@
-# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6）
+# AEH × dsh / Cordis 集成说明（Step 3 + Step 4 + Step 5 + Step 6 + Step 7）
 
 状态：**已用真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` 替换离线适配层，
 并在一个独立隔离的 Cordis loader 实例中完成加载/卸载与工具契约测试**。Step 5 在
@@ -8,9 +8,13 @@
 **宿主侧**受控自进化骨架 `aeh/evolution.py` 与 `dsh-plugin/src/host/evolution.ts`：
 候选只允许是配置/策略/提示模板的版本化变更记录，经冻结评测集隔离评测、默认拒绝的
 显式审批、仅作用于合成会话比例的灰度与熔断回滚，全链路追加式审计；**不新增任何
-模型可调用的自进化工具**，审批与回滚只能由宿主侧调用。仍**未**接入真实学生数据，
-也**未**加载进任何正在运行的 dsh 会话。本文说明 Step 1 核心如何映射为教育插件与
-工具、默认权限边界，以及真正接入 dsh 运行时还需要补什么。
+模型可调用的自进化工具**，审批与回滚只能由宿主侧调用。Step 7 完成 P1 加固：用
+Schemastery 定义并导出 Cordis `Config`（非法配置在 `apply` 前 fail loud）、为六个
+工具声明各自闭合的输出 schema、把假设快照绑定 dsh session/agent scope 并加 TTL 与
+清理（不写长期孪生）、增加追加式脱敏审计（门禁拒绝原因、工具调用、审批与交付回执，
+学生/租户维度只保留盐化伪名）。仍**未**接入真实学生数据，也**未**加载进任何正在运行
+的 dsh 会话。本文说明 Step 1 核心如何映射为教育插件与工具、默认权限边界，以及真正
+接入 dsh 运行时还需要补什么。
 
 Step 6 不修改 `aeh/` 的 Step 1/2/5 行为（只新增 `aeh/evolution.py`）与插件工具
 目录（仍是六个模型可调用工具），不接入真实学生数据，不复制
@@ -49,8 +53,10 @@ dsh-plugin/
   scripts/
     loader-evidence.mjs     # 隔离 Cordis loader 加载/卸载 + 契约证据脚本
   src/
-    index.ts                # Cordis 插件入口：name / inject / apply
+    index.ts                # Cordis 插件入口：name / inject / Config / apply
     dsh.ts                  # 真实 cordis/dsh-tools 的薄 authoring 适配层
+    config.ts               # Step 7：Schemastery 插件 Config（fail loud）
+    output-schemas.ts       # Step 7：六个工具各自的闭合输出 schema
     domain.ts               # 与 Python 核心对应的领域类型
     permissions.ts          # 默认最小权限清单与激活时校验
     report.ts               # Step 5：对应 aeh/report.py 的聚合报告边界
@@ -63,6 +69,8 @@ dsh-plugin/
       file-event-store.ts   # Step 5：默认关闭的 append-only 文件事件存储
       delivery.ts           # 宿主侧审批 + 交付门（工具不交付）
       evolution.ts          # Step 6：宿主侧受控自进化控制面（非工具）
+      session-state.ts      # Step 7：session/agent 级假设快照（TTL/隔离/清理）
+      audit-log.ts          # Step 7：追加式脱敏审计与伪名指标
     core/
       curriculum-gate.ts    # 对应 aeh/curriculum_gate.py
       twin.ts               # 对应 aeh/twin.py（宿主侧，不暴露写工具）
@@ -77,6 +85,7 @@ dsh-plugin/
     persistence.test.ts     # Step 5：8 个文件事件存储测试
     evolution.test.ts       # Step 6：22 个宿主侧自进化骨架测试
     contract.test.ts        # 7 个真实 Cordis/dsh 运行时契约测试
+    step7.test.ts           # Step 7：23 个配置/输出 schema/会话/审计测试
 ```
 
 `src/dsh.ts` 现在直接导入真实 `@deepseek-ai/cordis` 与
@@ -234,18 +243,26 @@ IG(q) + alpha * teachingValue(q)
 ```ts
 export const name = 'aeh-education'
 export const inject = ['tools']
+// Step 7: the loader validates/defaults this schema before `apply` runs.
+export const Config = AEH_CONFIG_SCHEMA
 
 export function apply(ctx: Context, config: PluginConfig = {}): void {
   assertMinimalPermissions(config.permissions)
   const service = createEducationService(
-    normalizeConfig(config),
+    resolveAehConfig(config), // single Schemastery validation path, fail loud
     config.host, // host-owned progress/item resolver; defaults to resolve-nothing
   )
+  const snapshots = new SessionSnapshotStore() // Step 7: session/agent scoped
+  const audit = new AehAuditLog() // Step 7: append-only, pseudonymised
 
   ctx.effect(() => {
-    const disposers = createEducationTools(service)
+    const disposers = createEducationTools(service, { audit, snapshots })
       .map((tool) => ctx.tools.register(tool))
-    return () => disposers.reverse().forEach((dispose) => dispose())
+    const detach = attachSessionCleanup(ctx, snapshots, audit)
+    return () => {
+      detach()
+      disposers.reverse().forEach((dispose) => dispose())
+    }
   })
 }
 ```
@@ -315,8 +332,10 @@ Step 6 同样**没有** `aeh_*_evolution_*` / `aeh_approve_*` / `aeh_rollback_*`
 宿主适配器时对这三类工具全部 fail closed。模型因此无法通过伪造
 `taughtKcs`、`safetyChecked` 或 `annotationConfidence` 来解锁内容。
 
-所有工具输出都是 JSON 友好的普通对象；当前输出 schema 使用宽松的
-`type: 'json'`，真实接入时应按工具收紧为明确的 object schema。
+所有工具输出都是 JSON 友好的普通对象。Step 7 起每个工具都在
+`src/output-schemas.ts` 声明**顶层闭合**的 object schema（`type: 'object'` +
+`additionalProperties: false`；动态 key 映射在嵌套层用 `additionalProperties: true`），
+dsh-tools 在返回前校验，越界返回是 `INVALID_TOOL_OUTPUT`。
 
 ## 6. 权限模型：默认最小权限
 
@@ -491,16 +510,37 @@ CI 无新增外部服务：Python job 直接运行 stdlib 评测脚本，Node jo
 Step 6 的 Python 测试为 `tests/test_evolution.py`（35），TypeScript 测试为
 `tests/evolution.test.ts`（22）。两者都只用合成 fixture，且不读写任何生产路径。
 
+### Step 7 完成情况（P1 加固：配置、输出 schema、会话状态、审计）
+
+状态图例同上：**已完成** = 在本目录合成数据/隔离实例上实现并有测试；**部分** = 最小
+模型完成，生产项未完成。Step 7 不新增模型工具（仍是六个），不接入真实学生数据。
+
+| Step 7 交付项 | 状态 | 证据 / 残留 |
+|---|---|---|
+| Schemastery `Config` 替换 `normalizeConfig` 运行时校验，非法配置 fail loud | **已完成（隔离实例）** | `src/config.ts` 定义 `AEH_CONFIG_SCHEMA`（`profile`、`targetRetention ∈ (0,1)`、`allowedModes`、不透明的 `host` / `permissions`），`src/index.ts` 导出为 Cordis `Config`。Cordis 在 `apply` 前用该 schema 校验并填默认值：`root.plugin(aehPlugin, { targetRetention: 3 })` 拒绝为 `ValidationError`（`$.targetRetention expected number <= 1`），loader 路径同样不挂载任何工具（fail closed，不部分挂载）。`apply` / `AehEducationService` 仍经 `resolveAehConfig` 走同一 schema。`tests/step7.test.ts` 覆盖越界 retention、非法 profile、非法 mode、非对象配置、默认值与服务构造校验。**残留**：真实配置中心的变更审批/回滚、热重载审计 |
+| 六个工具输出 schema 收紧（替换 `type: 'json'`） | **已完成（隔离实例）** | `src/output-schemas.ts` 为 `aeh_check_curriculum` / `aeh_update_hypotheses` / `aeh_select_probe` / `aeh_schedule_review` / `aeh_prepare_intervention` / `aeh_generate_report` 各定义顶层 `type: 'object'` + `additionalProperties: false` 的闭合 schema；动态 key 映射（权重、预测、`itemDecisions`）在嵌套层用 `additionalProperties: true`。dsh-tools 执行后校验返回值；`tests/step7.test.ts` 用真实 ToolRuntime 断言越界返回为 `INVALID_TOOL_OUTPUT`，并让六个工具各跑一次真实输出通过校验。**残留**：schema 版本迁移与对旧宿主的兼容策略 |
+| 假设快照绑定 dsh session/agent scope，明确 TTL、隔离与清理，不写长期孪生 | **已完成（内存/合成）** | `src/host/session-state.ts` 的 `SessionSnapshotStore`：`(sessionId, agentId)` 精确绑定，跨 session/agent 读取返回 `undefined`；默认 TTL 15 分钟（可注入时钟），`sweep()` / `cleanupExpired()`、每 scope/全局限额；`endSession()` 清 session 全部 agent scope，`index.ts` 把 `session/disposed` 桥接到它并写 `session.cleanup` 审计；工具在缺少 `exec.agent.id` 时拒绝 `snapshotRef`（`snapshot_ref_requires_session_scope`）。与 `StudentTwin`/`MemoryHostTwin` 无读写路径，测试断言孪生 `version` / `evidenceRevision` 不变。**残留**：跨进程/持久化 session store、真实 dsh session 服务注入与多租户隔离 |
+| 追加式审计：门禁拒绝原因、工具调用、审批与交付回执；不记原始题目/答案/图片；指标带学生/租户维度但不可反识别 | **已完成（内存/合成）** | `src/host/audit-log.ts` 的 `AehAuditLog`：append-only（无 update/delete，容量满 fail loud），记录 `gate.decision`（原因码）、`tool.call`（只记工具名与结果，不记参数）、`approval.record`、`delivery.receipt`、`session.cleanup`；`detail` 仅标量/标量数组并递归拒绝 `answer`/`question`/`image`/`payload`/`prompt`/`trace`/`studentName` 等键；`studentKey`/`tenantKey` 是 `sha256(salt, tenantRef, ref)` 伪名，`metrics()` 只出计数与伪名 key。`ApprovalLedger` / `HostDeliveryAdapter` 接受可选 audit，重放不重复计数。`tests/step7.test.ts` 覆盖。**残留**：防篡改/WORM 存储、跨服务汇聚与保留期、真实 KMS 管理的 salt（当前默认每进程随机，文档明确伪名化≠匿名化） |
+| 不新增模型可调用工具 | **已完成** | 插件工具目录仍是六个；审计与 session store 不是 dsh 工具，审批/交付回执只由宿主侧 `ApprovalLedger` / `HostDeliveryAdapter` 写入 |
+
+Step 7 的 TypeScript 测试为 `tests/step7.test.ts`（23），步骤完成时全量
+`node --test tests/*.test.ts` 为 93 通过、`python3 -m unittest discover -s tests -v`
+为 220 通过（Step 7 未新增 Python 测试，Step 1–6 行为未改）、`tsc --noEmit` 通过、
+`npm run evidence:loader` 仍成功。
+
 ### P1：上线前应补齐
 
-1. **配置 schema**：用 Schemastery 定义 `Config`，替换 `normalizeConfig` 的运行时
-   校验；非法配置 fail loud。
-2. **输出 schema 收紧**：把 `type: 'json'` 换成每个工具的明确 object schema，避免
-   模型/宿主对返回结构做宽松假设。
-3. **会话状态**：假设快照应绑定 dsh session/agent scope，明确 TTL、隔离和清理；
-   不得写入长期孪生。
-4. **审计与可观察性**：记录门禁拒绝原因、工具调用、审批和交付回执；不记录原始
-   题目/答案/图片；指标要有学生/租户维度但不可反识别。
+1. **配置 schema**：**Step 7 已完成**（`src/config.ts` + 入口导出的 Cordis `Config`；
+   非法配置在 `apply` 前 fail loud）。残留：真实配置中心的变更审批/回滚与热重载审计。
+2. **输出 schema 收紧**：**Step 7 已完成**（`src/output-schemas.ts`，六个工具各自闭合
+   object schema；越界返回 `INVALID_TOOL_OUTPUT`）。残留：schema 版本迁移策略。
+3. **会话状态**：**Step 7 已完成**（`src/host/session-state.ts`：session/agent 绑定、
+   TTL、隔离、`endSession` 清理，且不写长期孪生）。残留：跨进程持久化 session store、
+   真实 dsh session 服务注入与多租户隔离。
+4. **审计与可观察性**：**Step 7 已完成**（`src/host/audit-log.ts`：append-only、脱敏、
+   门禁/工具/审批/交付/清理事件、伪名学生/租户维度；`ApprovalLedger` 与
+   `HostDeliveryAdapter` 可选接入）。残留：WORM/防篡改存储、跨服务汇聚与保留期、
+   真实 KMS 管理的 salt；日志脱敏审查与错误信息泄露面留待 Step 8。
 5. **安全**：提示注入、越权参数、超大 payload、速率限制、日志脱敏、错误信息
    泄露审查；保持无网络/无任意文件。
 6. **FSRS 校准**：当前参数是规范 §8.3 的示意值；生产应按实际版本、优化器和
@@ -531,11 +571,11 @@ Step 6 的 Python 测试为 `tests/test_evolution.py`（35），TypeScript 测�
 cd dsh-plugin
 npm install --cache .npm-cache
 npm run typecheck                      # tsc --noEmit
-node --test tests/*.test.ts            # 70 个测试
+node --test tests/*.test.ts            # 93 个测试
 npm run evidence:loader                # 隔离 loader 加载/卸载证据
 ```
 
-Python 核心测试（Step 6 后共 220 个）：
+Python 核心测试（Step 6 后共 220 个；Step 7 不新增 Python 测试）：
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -543,7 +583,7 @@ python3 -m aeh.eval_cli                 # 可运行的合成评测报告
 python3 -m aeh.eval_cli --json          # 机器可读
 ```
 
-Node 测试分六层：
+Node 测试分七层：
 
 - `tests/invariants.test.ts`：13 个离线不变量测试，用结构化替身驱动插件注册与
   纯逻辑（门禁拒绝、preview 锁定、模拟隔离、证据绑定 mastery、回滚、记忆权重、
@@ -563,6 +603,12 @@ Node 测试分六层：
 - `tests/contract.test.ts`：7 个真实 Cordis/dsh 运行时契约测试（loader 挂载与
   schema、参数校验、报告工具闭合 schema 与原始字段拒绝、授权/未授权、取消、超时、
   卸载清理）。
+- `tests/step7.test.ts`：23 个 P1 加固测试（Schemastery 默认值/fail-loud/服务构造
+  校验、Cordis 直接注册与 loader 非法配置都不挂载、六个工具输出 schema 顶层闭合、
+  真实运行时六工具输出校验、越界返回 `INVALID_TOOL_OUTPUT`、快照 scope 隔离/TTL/
+  上限/session 结束清理/无孪生写路径/工具级 snapshotRef、审计 append-only 与事件
+  种类、原始数据键拒绝、门禁/工具/审批/交付回执审计、伪名指标、容量 fail loud、
+  插件审计包装与 `apply` 隔离上下文）。
 
 Python 侧新增 `tests/test_evaluation.py`（17 个）：冻结集摘要与分片隔离、迁移题
 unseen、模拟不能进迁移通道、真实迁移只接受可信来源、模拟数据不能重标为真实证据、
@@ -592,10 +638,15 @@ Python 侧新增 `tests/test_evolution.py`（35 个）：候选契约与受保�
 - 自进化仍为骨架：候选来源检测器（漂移/回归/成本）与 PR/变更单生成、真实冻结
   评测服务、生产灰度/监控接入、跨服务防篡改审计与保留期都未实现；TypeScript 侧
   的 `IsolatedSandbox` 接收宿主评测摘要而非自己运行冻结集协议。
-- 输出 schema 仍宽松（`type: 'json'`；参数对象开放但工具体只读白名单字段）；
-  locale、速率限制、可观察性和跨进程并发控制未实现。
+- 输出 schema 已按 Step 7 收紧为顶层闭合 object schema（动态 key 映射在嵌套层使用
+  `additionalProperties: true`）；参数对象仍开放（工具体只读白名单字段），locale、
+  速率限制与跨进程并发控制仍未实现（安全加固见 Step 8）。
 - FSRS 参数为示意值，不是生产校准参数。
-- `Config` 仍用 `normalizeConfig` 运行时校验，未改用 Schemastery。
+- `Config` 已在 Step 7 改为 Schemastery 校验并导出为 Cordis `Config`；残留真实配置
+  中心的变更审批/回滚与热重载审计。
+- Step 7 的会话快照与审计仍是内存/合成实现：跨进程持久化 session store、WORM/防篡改
+  审计存储、跨服务审计汇聚与保留期、真实 KMS 管理的审计 salt 未做；`AehAuditLog` 的
+  学生/租户维度是伪名化而非匿名化。
 
 ## 12. 参考与许可证
 
