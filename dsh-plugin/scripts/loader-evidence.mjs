@@ -73,7 +73,7 @@ const host = new MemoryHostContext({
 
 const log = (label, value) => console.log(`- ${label}: ${value}`)
 
-console.log('AEH Step 4 isolated Cordis/dsh loader evidence')
+console.log('AEH Step 4+5 isolated Cordis/dsh loader evidence')
 log('node', process.version)
 log('@deepseek-ai/cordis', packageVersion('cordis'))
 log('@deepseek-ai/dsh-tools', packageVersion('dsh-tools'))
@@ -103,6 +103,7 @@ const schemaNames = root.tools
 log('mounted tools', schemaNames.join(', '))
 assert.deepEqual(schemaNames, [
   'aeh_check_curriculum',
+  'aeh_generate_report',
   'aeh_prepare_intervention',
   'aeh_schedule_review',
   'aeh_select_probe',
@@ -120,6 +121,30 @@ const allowed = await invoke('aeh_check_curriculum', {
 assert.equal(allowed.isError, false)
 log('authorised gate decision', JSON.stringify(allowed.value))
 assert.equal(allowed.value.allowed, true)
+
+const report = await invoke('aeh_generate_report', {
+  audience: 'teacher',
+  studentRef: STUDENT_REF,
+  windowStart: '2026-03-02T00:00:00Z',
+  windowEnd: '2026-03-03T00:00:00Z',
+  events: [
+    {
+      aggregateRef: 'agg.evidence.001',
+      studentRef: STUDENT_REF,
+      occurredAt: '2026-03-02T09:00:00Z',
+      kind: 'attempt_aggregate',
+      consentScope: 'educational_report',
+      kcId: 'kc.fraction.add',
+      attempts: 2,
+      independentCorrect: 1,
+      hintsRequested: 1,
+      minutes: 4,
+    },
+  ],
+})
+assert.equal(report.isError, false)
+log('report data-minimization', JSON.stringify(report.value.data_minimization))
+assert.equal(report.value.data_minimization.event_refs_included, false)
 
 const badArgs = await invoke('aeh_check_curriculum', {
   mode: 'practice',
