@@ -5,7 +5,11 @@ for the harness described in
 ``spec/Adaptive_Cognitive_Twin_Education_Harness_v1.1.md``, plus an offline
 synthetic demo session and aggregate-only teacher/guardian reports.  Step 5
 adds an independent, frozen evaluation protocol (spec section 19) that keeps
-simulated benefit separate from real transfer.
+simulated benefit separate from real transfer.  Step 6 adds a host-side
+controlled self-evolution skeleton (spec section 27): versioned
+config/policy/prompt candidates, isolated frozen-set evaluation, default-deny
+approval, synthetic-session canaries with circuit-breaker rollback, and an
+append-only audit log without raw student data.
 
 The modules here are deliberately small and explicit so that the hard
 invariants (real/simulated isolation, fail-closed curriculum gating, evidence
@@ -27,6 +31,7 @@ __all__ = [
     "demo",
     "evaluation",
     "eval_cli",
+    "evolution",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
