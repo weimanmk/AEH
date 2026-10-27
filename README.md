@@ -1,14 +1,16 @@
 # AEH — Adaptive Cognitive Twin Education Harness
 
 AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库对应
-[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5**：Step 1
-用 Python 标准库实现可测试的核心机制；Step 2 在核心之上增加一个完全离线的合成
-演示会话，以及只消费已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript
+[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6**：
+Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之上增加一个完全离线的
+合成演示会话，以及只消费已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript
 的 dsh / Cordis 教育插件骨架；Step 4 把插件骨架的离线适配层替换为真实的
 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools`，并在**独立隔离**的 Cordis/dsh
 实例中完成加载、契约与卸载验证，同时补齐内存宿主适配器；Step 5 增加只接收已授权
 聚合事件的报告工具、默认关闭的本地文件事件存储（保留期与同意撤回删除传播），
-以及独立冻结的评测协议（模拟收益与真实迁移严格分离）。
+以及独立冻结的评测协议（模拟收益与真实迁移严格分离）；Step 6 增加**宿主侧**受控
+自进化骨架（候选登记 → 隔离评测 → 默认拒绝审批 → 合成灰度/熔断 → 晋升/回滚 →
+追加式审计），不新增模型可调用的自进化工具。
 
 当前状态：**核心骨架 + 合成演示 + 已在隔离实例中验证的插件，不是生产系统**。
 Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真实 `@deepseek-ai/*`
@@ -41,6 +43,12 @@ Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真�
 - 一个独立冻结的评测协议（Python 标准库）：train/explanation/transfer 分片隔离、
   迁移题 unseen、内容摘要冻结；模拟收益与真实迁移分开报告，且模拟数据在任何路径上
   都不能充当真实学习效果证据。
+- 一个宿主侧受控自进化骨架（Python `aeh/evolution.py` + TypeScript
+  `dsh-plugin/src/host/evolution.ts`）：候选只允许是配置/策略/提示模板的版本化变更
+  记录，不能降低门禁、放宽权限或写生产文件；候选经冻结评测集隔离评测（模拟收益与
+  真实迁移分开，评测不通过/证据不足自动拒绝）、显式且默认拒绝的宿主审批、仅作用于
+  合成会话比例的灰度与熔断回滚，全链路追加式审计且不含原始学生数据。审批与回滚
+  **只由宿主侧调用**，不是模型工具。
 
 ## 这不是什么
 
@@ -56,6 +64,9 @@ Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真�
   没有加密、事务并发、跨服务删除传播或真实签名 attestation。
 - 评测协议不是随机对照试验：它只保证冻结集分片隔离与“模拟/真实分离、不自证”；
   没有真实对照组、延迟保持、跨知识迁移或不良效果的完整测量。
+- Step 6 的自进化不是自主上线：它是宿主侧内存/合成骨架，没有生产发布或配置中心，
+  没有真实流量灰度、监控或跨服务防篡改审计，也没有让模型自行批准、晋升或回滚的
+  工具；真实自进化仍必须走人工审批与独立安全流程。
 - 不宣称“读心”。所有推断都来自可观察证据，并保留不确定性与 `unknown`。
 - 不把模拟试学收益等同于真实学习效果；训练、讲解和迁移评测必须隔离。
 - 不复制 `references/` 中任何参考仓库的代码。参考仓库只用于机制与算法研究。
@@ -77,12 +88,17 @@ Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真�
 | 孪生写与干预交付属于宿主；模型不能绕过门禁或直接发题 | `dsh-plugin/src/tools.ts`、`dsh-plugin/src/core/twin.ts` | `dsh-plugin/tests/invariants.test.ts` |
 | 文件事件存储 append-only、幂等、版本/回滚、保留期、同意撤回删除传播 | `dsh-plugin/src/host/file-event-store.ts` | `dsh-plugin/tests/persistence.test.ts` |
 | 评测冻结集分片隔离、迁移题 unseen、模拟收益不能自证真实效果 | `aeh/evaluation.py` | `tests/test_evaluation.py` |
+| 自进化候选不能改门禁/权限/隐私，不能写生产文件，不能自我批准或自我回滚 | `aeh/evolution.py`、`dsh-plugin/src/host/evolution.ts` | `tests/test_evolution.py`、`dsh-plugin/tests/evolution.test.ts` |
+| 评测不通过或证据不足自动拒绝；模拟收益不能单独作为晋升依据 | `aeh/evolution.py`、`dsh-plugin/src/host/evolution.ts` | `tests/test_evolution.py`、`dsh-plugin/tests/evolution.test.ts` |
+| 审批显式且默认拒绝；灰度仅合成比例、带熔断与回滚；全链路审计无原始数据 | `aeh/evolution.py`、`dsh-plugin/src/host/evolution.ts` | `tests/test_evolution.py`、`dsh-plugin/tests/evolution.test.ts` |
 
 另外，`tests/test_invariants.py` 用端到端断言直接命名并覆盖了 TASKS.md 要求的四条
 Step 1 不变量。Step 2 的测试额外覆盖“演示不接真实数据”和“报告不泄露原始数据”；
 Step 3 的离线测试覆盖插件侧的模拟隔离、证据绑定 mastery、门禁复检、FSRS 质量权重、
 假设归一化、训练/迁移隔离和默认权限拒绝；Step 5 的测试覆盖报告工具边界、文件
-事件存储的保留期/撤回删除传播，以及评测的防自证约束。
+事件存储的保留期/撤回删除传播，以及评测的防自证约束；Step 6 的测试覆盖候选契约、
+受保护不变量拒绝、评测自动拒绝、默认拒绝审批、合成灰度与熔断回滚、候选不能自我
+批准/回滚，以及无原始数据的追加式审计。
 
 ## Step 2：命令行演示会话
 
@@ -204,7 +220,7 @@ node --test tests/*.test.ts
 13 个离线不变量测试覆盖门禁拒绝、preview 锁定、模拟事件隔离、证据绑定 mastery、回滚、
 阅读/提示/独立作答权重、FSRS 反解、假设归一化、诊断门禁复检与跳过、干预包
 训练/迁移隔离、默认权限拒绝、插件注册与卸载，以及无宿主授权时的 fail-closed。
-（Step 5 后 `node --test tests/*.test.ts` 共 48 个测试，见下文。）
+（Step 6 后 `node --test tests/*.test.ts` 共 70 个测试，见下文。）
 
 可选类型检查（需要先 `npm install` 安装 devDependencies）：
 
@@ -245,10 +261,10 @@ Step 4 在**不改变 Python 核心行为、不改动运行中 harness** 的前�
   [`docs/dsh-integration.md`](docs/dsh-integration.md) 第 9 节。
 
 **仍未完成**（文档中如实列出，未假装实现）：生产鉴权/KMS/签名 attestation、
-持久化孪生存储、租户隔离、保留期与删除传播、真实交付 UI/LMS 与审批后台、独立
-评测与回滚流水线、报告插件（Step 5 已完成最小实现）、自进化流水线、输出 schema
-收紧、locale/速率限制、
-FSRS 生产校准。本轮**只准备、不交付**，也不引入真实学生数据或密钥。
+持久化孪生存储、租户隔离、保留期与删除传播、真实交付 UI/LMS 与审批后台、生产级
+独立评测与回滚通道、输出 schema 收紧、locale/速率限制、FSRS 生产校准。报告工具与
+独立冻结评测协议已在 Step 5 完成最小实现，宿主侧受控自进化骨架已在 Step 6 完成
+（均仍为合成/内存实现）。本轮**只准备、不交付**，也不引入真实学生数据或密钥。
 
 ## Step 5：报告插件、持久化最小模型与独立评测
 
@@ -330,6 +346,79 @@ python3 -m aeh.eval_cli --json
 - loader 契约测试仍使用独立隔离的 `Context` + `cordis-plugin-loader` 实例；
 - Python 与 TypeScript 测试全部通过，`tsc --noEmit` 通过；CI 未新增外部服务。
 
+## Step 6：受控自进化流水线骨架（规范 §27）
+
+Step 6 只在本目录内工作，不修改运行用 dsh（`~/.dsh/`、`~/workspace/deepseek-harness`
+克隆、npx 安装的 dsh），不把插件加载进正在执行本任务的 harness 会话，全部使用合成
+数据。它是**宿主侧控制面骨架**，不是自主改写系统的 Agent。
+
+### 6.1 候选生成与登记
+
+`aeh/evolution.py` 的 `Candidate` + `CandidateRegistry` 与
+`dsh-plugin/src/host/evolution.ts` 的 `Candidate` + `CandidateRegistry`：
+
+- 候选只能是 `config` / `policy` / `prompt_template` 的**版本化变更记录**，必须带
+  `source`（漂移检测、错题报告、评测回归、工具失败、成本报告、人工请求等）、
+  `change_summary`、`impact_scope`、`baseline_version` 和作者；
+- `changes` 必须是可 JSON 化的声明式数据，不能携带函数/代码；候选不能声明
+  `target_files`，也不能声明 `mutates_production`，因此候选本身无法修改任何生产文件；
+- 递归拒绝 `changes` 的键名或 `impact_scope` 条目中触及受保护不变量的 token（课程
+  门禁、安全门禁、内容校验、权限、同意、隐私、真实-模拟隔离、observed 孪生写、
+  自我批准、回滚权、原始学生数据、DB 写、凭据、网络、任意文件）。这些变更必须走
+  独立的安全/产品治理流程（规范 §27.1）；
+- 登记是内存中的 append-only、按 `(candidate_id, version)` 幂等；同 id/version 不同
+  内容会被拒绝。
+
+### 6.2 隔离评测
+
+每个候选必须经 `IsolatedSandbox` 在 Step 5 的 `FrozenEvalSet` 与隔离沙箱中评测
+（TypeScript 侧接收宿主评测服务产出的分通道摘要）：
+
+- **模拟收益**只能来自 train/explanation 分片，标记为 `is_causal_evidence=false`；
+- **真实迁移**只接受可信来源（`student` / `teacher` / `trusted_grader` /
+  `assessment`）的 unseen transfer 证据；
+- 模拟数据不能进入真实通道，也不能被重标为真实证据（`SplitIsolationError` /
+  `SelfProofError` 会变成失败评测并自动拒绝）；
+- 评测不通过或证据不足（无证据、模拟收益低于阈值、真实迁移低于阈值/非 unseen/
+  来源不可信）时，候选状态直接变为 `rejected`；
+- **模拟收益不能单独作为晋升依据**：只有真实迁移证据达标时 `promotion_ready` 才为
+  真，否则最多进入候选池/灰度。
+
+### 6.3 批准与灰度
+
+- 批准必须是显式的 `ApprovalRecord`（审批人、时间、理由、角色），**默认拒绝**：
+  没有审批记录、非宿主角色、记录中的审批人与操作者不一致、或候选作者自我批准都会
+  被拒绝；
+- 灰度只影响**合成会话比例**（`synthetic_only=true`，`fraction ∈ (0,1]`），必须
+  先有显式批准；
+- 灰度带熔断条件（`max_regression` / `max_error_rate` / `min_samples` /
+  `max_duration_minutes`），样本达标且超阈值时自动触发 `circuit_breaker` 并立即
+  回滚，即“一键回滚”。
+
+### 6.4 回滚
+
+`rollback` 恢复上一稳定版本（`baseline_version` / `previous_stable_version`）并
+记录 `RollbackEvent`（from/to、触发者、理由、触发方式）。只允许宿主角色调用；
+候选不能自行回滚生产系统，也不能自行批准自己（`RollbackDeniedError` /
+`ApprovalDeniedError`）。
+
+### 6.5 审计
+
+单一 append-only `AuditLog` / `EvolutionAuditLog` 覆盖候选登记、隔离评测、批准、
+灰度开始/观测/熔断、晋升、回滚全链路，无更新/删除 API；递归拒绝 `answer` /
+`payload` / `student_name` / `trace` 等原始学生数据键。`pipeline_snapshot()` 显式
+声明 `production_mutation_enabled=false`、`sandbox_has_production_access=false`、
+`synthetic_fixtures_only=true`。
+
+### 6.6 工具与隔离边界
+
+- **不新增模型可调用的自进化工具**：插件工具目录仍是六个，名字里没有
+  `evolution` / `approve` / `rollback` / `canary`（`tests/evolution.test.ts` 断言）；
+- 审批、灰度、晋升、回滚只在宿主侧 `src/host/evolution.ts` 中调用；
+- 测试：`tests/test_evolution.py`（35）与 `dsh-plugin/tests/evolution.test.ts`（22），
+  全部使用合成 fixture。**未完成**：真实候选来源检测器与 PR/变更单生成、真实冻结
+  评测服务、生产灰度/监控接入、跨服务防篡改审计与保留期、真实部署/回滚通道。
+
 ## 目录结构
 
 ```text
@@ -345,21 +434,23 @@ aeh/
   report.py            # Step 2 已授权聚合事件的教师/家长报告
   evaluation.py        # Step 5 独立冻结评测协议（规范 §19，防自证）
   eval_cli.py          # Step 5 可运行评测入口（python -m aeh.eval_cli）
+  evolution.py         # Step 6 受控自进化骨架（规范 §27，宿主侧）
   demo.py              # Step 2 命令行入口（python -m aeh.demo）
-dsh-plugin/            # Step 3+4+5 TypeScript dsh / Cordis 教育插件
+dsh-plugin/            # Step 3+4+5+6 TypeScript dsh / Cordis 教育插件
   src/index.ts         # Cordis 插件入口（name / inject / apply）
   src/dsh.ts           # 真实 cordis / dsh-tools 薄 authoring 适配层
   src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包
   src/host/            # 内存同意 / HostContext / 孪生 / 交付适配器
   src/host/file-event-store.ts  # Step 5 默认关闭的文件事件存储
+  src/host/evolution.ts         # Step 6 宿主侧受控自进化控制面（非工具）
   src/report.ts        # Step 5 聚合报告边界（对应 aeh/report.py）
   src/tools.ts         # 六个教育工具
   src/permissions.ts   # 默认最小权限
   scripts/             # 隔离 loader 加载证据脚本
-  tests/               # Node 24 不变量 + 宿主适配器 + 报告 + 持久化 + 契约
+  tests/               # Node 24 不变量 + 宿主适配器 + 报告 + 持久化 + 自进化 + 契约
   package.json         # 真实 @deepseek-ai/* 依赖（只装在本目录）
 docs/
-  dsh-integration.md   # Step 3+4+5 映射、权限与完成情况
+  dsh-integration.md   # Step 3+4+5+6 映射、权限与完成情况
   evaluation-report-template.md  # Step 5 评测报告模板
 tests/                 # Python 标准库 unittest 测试
 .github/workflows/ci.yml
@@ -403,7 +494,13 @@ python3 -m aeh.eval_cli --json
 python3 -m unittest discover -s tests -p 'test_evaluation.py' -v
 ```
 
-Step 3+4+5 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
+Step 6 的受控自进化骨架（合成数据，离线，纯内存）：
+
+```bash
+python3 -m unittest discover -s tests -p 'test_evolution.py' -v
+```
+
+Step 3+4+5+6 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
 依赖，只安装在 `dsh-plugin/` 内（独立缓存），不会加载进运行中的 dsh，也不读写
 `~/.dsh/`：
 
@@ -415,9 +512,9 @@ node --test tests/*.test.ts
 npm run evidence:loader    # 隔离 Cordis loader 加载/卸载证据
 ```
 
-Node 测试分五层：13 个离线不变量测试、12 个宿主适配器测试、8 个报告边界测试、
-8 个文件事件存储测试、7 个真实 Cordis/dsh 运行时契约测试，全部使用合成引用，
-共 48 个。
+Node 测试分六层：13 个离线不变量测试、12 个宿主适配器测试、8 个报告边界测试、
+8 个文件事件存储测试、22 个宿主侧自进化测试、7 个真实 Cordis/dsh 运行时契约测试，
+全部使用合成引用，共 70 个。Python 侧共 220 个测试。
 
 ## CI
 
@@ -450,7 +547,7 @@ Node 测试分五层：13 个离线不变量测试、12 个宿主适配器测试
 
 ## 已知边界 / TODO
 
-Step 1–5 有意不做以下内容，后续步骤再实现：
+Step 1–6 有意不做以下内容，后续步骤再实现：
 
 - 生产级持久化：Step 5 只提供默认关闭的本地文件最小模型（append-only、幂等、
   版本/回滚、保留期、同意撤回删除传播）；跨服务/备份/向量索引的删除传播、加密、
@@ -462,10 +559,12 @@ Step 1–5 有意不做以下内容，后续步骤再实现：
 - 评测协议只保证冻结集分片隔离与模拟/真实分离；真实 RCT/对照组、延迟保持、
   跨知识迁移与不良效果测量未做，且本仓库只用合成数据。
 - 生产 dsh 会话挂载、真实签名 attestation/KMS、真实交付通道与审批后台、沙箱与
-  凭据撤销。Step 4/5 只在独立隔离的 Cordis/dsh 实例中完成加载与契约验证；内存
-  `src/host/` 适配器与 `FileEventStore` 都不是生产实现。
+  凭据撤销。Step 4/5/6 只在独立隔离的 Cordis/dsh 实例中完成加载与契约验证；内存
+  `src/host/` 适配器、`FileEventStore` 与 `host/evolution.ts` 都不是生产实现。
 - 孪生写工具与干预交付工具；它们被有意保留在宿主侧，默认插件不暴露。
-- 自进化的候选—隔离评测—批准—灰度—回滚流水线。
+- 自进化的真实候选来源检测器（漂移/回归/成本）与 PR/变更单生成、真实冻结评测
+  服务、生产灰度/监控接入、跨服务防篡改审计与保留期、真实部署/回滚通道；Step 6
+  只交付宿主侧内存/合成骨架。
 - 真实学生迁移与延迟保持的校准；当前记忆参数为示意值，小样本仍保留高不确定性。
 - 插件输出 schema 收紧、速率限制、locale 与跨进程并发控制；`Config` 尚未改用
   Schemastery 校验。
@@ -485,6 +584,10 @@ Step 1–5 有意不做以下内容，后续步骤再实现：
   加载都 fail closed。
 - Step 5 评测协议把模拟收益与真实迁移硬隔离：模拟数据不能进入真实通道，也不能
   用于自证真实学习效果；报告显式声明无真实证据。
-- Step 3+4+5 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
-  凭据、文件或网络权限，observed 孪生写与干预交付不属于模型工具。隔离测试只使用
-  合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
+- Step 6 自进化候选只能是声明式配置/策略/提示模板变更记录，不能触及课程门禁、
+  权限、隐私、真实-模拟隔离等受保护不变量，不能写生产文件；审批默认拒绝、灰度仅
+  合成会话比例、带熔断与回滚，全链路追加式审计不含原始学生数据。审批与回滚只在
+  宿主侧调用，不新增模型工具。
+- Step 3+4+5+6 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
+  凭据、文件或网络权限，observed 孪生写、干预交付与自进化审批/回滚不属于模型工具。
+  隔离测试只使用合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
