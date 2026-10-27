@@ -28,3 +28,34 @@ jobs:
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+
+  plugin:
+    name: dsh plugin (Node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: dsh-plugin
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # Dependencies stay inside dsh-plugin/ with its own cache; the job never
+      # touches ~/.dsh, an npx dsh install, or a running harness session.
+      - name: Install plugin dependencies (isolated cache)
+        run: npm ci --cache .npm-cache --no-audit --no-fund
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Run plugin tests
+        run: node --test tests/*.test.ts
+
+      - name: Record isolated loader evidence
+        run: npm run evidence:loader
