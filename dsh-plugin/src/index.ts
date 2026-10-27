@@ -18,9 +18,14 @@ import {
   type PermissionRequest,
 } from './permissions.ts'
 import {
+  AEH_CONFIG_SCHEMA,
+  resolveAehConfig,
+} from './config.ts'
+import { AehAuditLog } from './host/audit-log.ts'
+import { SessionSnapshotStore } from './host/session-state.ts'
+import {
   createEducationService,
-  normalizeConfig,
-  type Config,
+  type Config as ServiceConfig,
   type HostContext,
 } from './service.ts'
 import { createEducationTools } from './tools.ts'
@@ -33,7 +38,18 @@ export const inject = ['tools']
 /** Machine-checkable minimal permission manifest for host review. */
 export const permissions = MINIMAL_PERMISSIONS
 
-export interface PluginConfig extends Config {
+/**
+ * Cordis plugin `Config` (Schemastery).
+ *
+ * Exporting the schema makes the loader validate and default a YAML/config
+ * object **before** `apply` runs, so an illegal `profile` / `targetRetention` /
+ * `allowedModes` fails the load loudly instead of silently falling back to
+ * defaults. `apply` re-runs the same schema through {@link resolveAehConfig} for
+ * direct/embedded callers and tests, so there is one validation path.
+ */
+export const Config = AEH_CONFIG_SCHEMA
+
+export interface PluginConfig extends ServiceConfig {
   /**
    * Optional request from the host. It may only narrow or restate the minimal
    * manifest; any denied capability makes plugin activation fail closed.
@@ -51,35 +67,79 @@ export interface PluginConfig extends Config {
  * Register the AEH education tools.
  *
  * Every registration is owned by one `ctx.effect`, so unloading or hot-replacing
- * the plugin removes all tools even if a later registration throws.
+ * the plugin removes all tools even if a later registration throws. The
+ * per-instance session snapshot store and audit log are created here: neither is
+ * exported to the model, and nothing in them reaches the long-term twin.
  */
 export function apply(ctx: Context, config: PluginConfig = {}): void {
   assertMinimalPermissions(config.permissions)
-  const resolved = normalizeConfig({
-    profile: config.profile,
-    targetRetention: config.targetRetention,
-    allowedModes: config.allowedModes,
-  })
+  // Fail loud on illegal config: the same Schemastery schema validates both the
+  // loader-supplied object and direct/embedded calls.
+  const resolved = resolveAehConfig(config)
   const service = createEducationService(resolved, config.host)
+  const snapshots = new SessionSnapshotStore()
+  const audit = new AehAuditLog()
 
   ctx.effect(() => {
     const disposers: Array<() => void> = []
+    const detachSessionCleanup = attachSessionCleanup(ctx, snapshots, audit)
     try {
-      for (const tool of createEducationTools(service)) {
+      for (const tool of createEducationTools(service, { audit, snapshots })) {
         disposers.push(ctx.tools.register(tool))
       }
     } catch (error) {
+      detachSessionCleanup()
       for (const dispose of disposers.reverse()) {
         dispose()
       }
       throw error
     }
     return () => {
+      detachSessionCleanup()
       for (const dispose of disposers.reverse()) {
         dispose()
       }
+      // The store is per-plugin and unexported; drop every snapshot on unload.
+      snapshots.clear()
     }
   })
+}
+
+/**
+ * Best-effort bridge to dsh `session/disposed`. The plugin intentionally does
+ * not hard-depend on `@deepseek-ai/dsh-session`, so the listener is attached
+ * through a structural view of the Cordis context; a host without that event
+ * simply gets no callback and still has TTL + per-session scope isolation.
+ */
+export function attachSessionCleanup(
+  ctx: Context,
+  snapshots: SessionSnapshotStore,
+  audit: AehAuditLog,
+): () => void {
+  const on = (
+    ctx as unknown as {
+      on?: (
+        event: string,
+        listener: (...args: unknown[]) => void,
+      ) => (() => void) | void
+    }
+  ).on
+  if (typeof on !== 'function') return () => {}
+  const off = on.call(ctx, 'session/disposed', (...args: unknown[]) => {
+    const session = args[0] as { readonly id?: unknown } | undefined
+    const sessionId = session?.id
+    if (typeof sessionId !== 'string' || sessionId.length === 0) return
+    const removed = snapshots.endSession(sessionId)
+    if (removed > 0) {
+      audit.append({
+        kind: 'session.cleanup',
+        action: 'session.disposed',
+        outcome: 'accepted',
+        detail: { removed },
+      })
+    }
+  })
+  return typeof off === 'function' ? off : () => {}
 }
 
 export { MINIMAL_PERMISSIONS, permissionSummary } from './permissions.ts'
@@ -91,6 +151,32 @@ export {
   normalizeConfig,
   type HostContext,
 } from './service.ts'
+export {
+  AEH_CONFIG_SCHEMA,
+  ConfigValidationError,
+  gateModeSchema,
+  resolveAehConfig,
+  type PluginProfile,
+  type ResolvedAehConfig,
+} from './config.ts'
+export {
+  AUDIT_EVENT_KINDS,
+  AehAuditLog,
+  type AuditEventKind,
+  type AuditMetrics,
+  type AuditRecord,
+  type AuditRecordInput,
+} from './host/audit-log.ts'
+export {
+  DEFAULT_SESSION_SNAPSHOT_TTL_MS,
+  SessionScopeError,
+  SessionSnapshotStore,
+  scopeFromExecution,
+  type SessionScope,
+  type SessionSnapshotInput,
+  type SessionSnapshotRecord,
+  type SessionSnapshotStoreOptions,
+} from './host/session-state.ts'
 export { StudentTwin } from './core/twin.ts'
 export { allow, allowedKcs } from './core/curriculum-gate.ts'
 export {
