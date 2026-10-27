@@ -1,7 +1,7 @@
 # AEH — Adaptive Cognitive Twin Education Harness
 
 AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库对应
-[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9 + Step 10**：
+[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4 + Step 5 + Step 6 + Step 7 + Step 8 + Step 9 + Step 10 + Step 11**：
 Step 1 用 Python 标准库实现可测试的核心机制；Step 2 在核心之上增加一个完全离线的
 合成演示会话，以及只消费已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript
 的 dsh / Cordis 教育插件骨架；Step 4 把插件骨架的离线适配层替换为真实的
@@ -21,7 +21,10 @@ RAG 检索接口，以及“检索结果必须再过课程门禁 + 前置闭包�
 KC，先过课程门禁再进隔离沙箱评测）与动态模拟实验室（独立会话状态与独立假设快照、
 模拟事件永不写入 `observed`、实验配置与结果可用 seed/配置版本/结果摘要复现，模拟收益
 与真实迁移分通道报告）。Step 9 与 Step 10 只使用合成标注，不包含真实题目原文、答案、
-提示或学生数据。
+提示或学生数据；Step 11 增加 FSRS 参数校准（从合成 review 序列确定性拟合
+stability/difficulty 动力学参数，带 seed/数据版本/参数版本可复现指纹、bootstrap 不
+确定性与适用性声明，只产出参数候选，经隔离评测 + 显式宿主批准才激活，模拟收益与真实
+迁移分通道报告，激活只返回冻结配置对象、绝不写掌握度或孪生）。
 
 当前状态：**核心骨架 + 合成演示 + 已在隔离实例中验证的插件，不是生产系统**。
 Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真实 `@deepseek-ai/*`
@@ -740,6 +743,77 @@ Step 10 继续只在 `aeh/`、`dsh-plugin/`、`tests/` 与文档内工作，不�
   模拟调度与持久化、把演化候选接入真实交付/UI。当前实现是合成数据上的
   Python/TypeScript 双实现骨架，不宣称生产可用。
 
+## Step 11：FSRS 参数校准（规范 §8）
+
+Step 11 继续只在 `aeh/`、`dsh-plugin/`、`tests/` 与文档内工作，不修改运行用 dsh
+（`~/.dsh/` 配置与存储、`~/workspace/deepseek-harness` 源码克隆、npx 安装的 dsh），
+不把 AEH 插件加载进正在执行本任务的 harness 会话；`references/` 与 `spec/` 只读。
+校准只用**合成** review 序列，不接触真实学生数据；校准只产出参数**候选**，激活只返回
+冻结的参数配置对象，**绝不**写 `MemoryState` 或 `StudentTwin`。
+
+### 11.1 Python 核心：`aeh/fsrs_calibration.py`
+
+- **确定性拟合**：沿用规范 §8.3 的示意曲线
+  `R = (1 + 19/81 · t / S_eff)^(-1/2)`，`S_eff = max(0.4, S · (10-D)/5)`；拟合 6 维
+  动力学参数（初始 stability、成功增长、失败收缩、初始 difficulty、成功/失败对
+  difficulty 的增量）。优化器是从四个确定性起点出发的坐标下降（best-of multi-start），
+  目标为 Brier 分数 + 向规范先验的 ridge 收缩；拟合路径只用 `+ - * / sqrt`，避免
+  `pow`/libm 跨语言舍入差异。
+- **可复现**：`CalibrationConfig`（seed、data_version、parameter_version、rounds、
+  step_fraction、bootstrap_resamples、ridge、confidence、阈值）与数据摘要、报告
+  payload 全部 canonical JSON 内容寻址；相同输入得到相同 `report_fingerprint`，只改
+  seed 只改变 bootstrap 区间而不改变点估计。
+- **不确定性与适用性**：bootstrap 复用共享 `mulberry32`，给出每个参数的置信区间与
+  `identified()` 判定、Brier 区间、ECE、log loss 与 10 个可靠性分箱；`Applicability`
+  声明 scope、观测数、elapsed-day 范围、独立/提示观测数与 out-of-scope 清单，弱辨识
+  参数被如实列出。
+- **候选边界**：`CalibrationService.propose_candidate()` 只生成声明式
+  `Candidate`（`kind="config"`、基线 `fsrs_illustrative_19_81`、影响面
+  `review_scheduling`/`simulation_parameters`）；`PRODUCTION_MUTATION_ENABLED=False`。
+- **隔离评测与门禁**：`CalibrationActivationGate` 状态机
+  `registered → evaluated/rejected → approved → activated → rolled_back`；`activate()`
+  需要隔离评测通过**且**显式宿主审批（默认拒绝、禁止自批、要求宿主角色），并只返回
+  冻结配置；`rollback()` 回到上一稳定版本。
+- **CLI**：`python -m aeh.fsrs_calibration_cli [--json]` 用固定 clock 跑完“合成数据 →
+  校准 → 候选 → 无真实证据时晋升被阻止 → 显式批准后激活”的确定性演示。
+
+### 11.2 模拟收益与真实迁移分通道
+
+- `evaluate_candidate()` 在**不相交**合成 held-out 集上计算候选相对示意基线的 Brier
+  改善，`simulated_benefit.is_causal_evidence=false`，并明确注释“非真实学习效果”。
+- 真实迁移通道单独报告，只接受可信来源（`student`/`teacher`/`trusted_grader`/
+  `assessment`）与 unseen 题项；没有真实证据时永远
+  `promotion_blocked:real_transfer_evidence_missing`，`promotionReady=false`；`real_transfer`
+  即使存在也只作描述性结论。激活并非真实效果声明，只是记录一次被批准的配置切换。
+
+### 11.3 TypeScript 对应实现与确定性
+
+- `dsh-plugin/src/core/fsrs-calibration.ts` 与 Python 版逐项对应：同样的参数向量/边界/
+  先验、起点、坐标下降、ridge、bootstrap、metrics、适用性、候选与门禁状态机。
+- **共享原语双实现**：`mulberry32`、`round4`、`quantizeMicros`、`contentHash`/
+  `canonicalJson` 在两侧行为一致；共享 fixture 上 `datasetDigest`、`configFingerprint`、
+  `reportFingerprint`、参数、估计区间、metrics 与 applicability **逐字节一致**。
+- **未新增模型工具**：校准与门禁是核心/宿主侧 API，插件工具目录仍是六个。
+
+### 11.4 测试与隔离验证
+
+- Python：`tests/test_fsrs_calibration.py`（50）覆盖原语、模型数学、参数/数据/配置校验、
+  报告复现与 seed 语义、bootstrap 区间、可靠性分箱、适用性/证据充分性、生成器确定性、
+  候选边界、模拟/真实分通道、可信来源与 unseen gating、门禁状态机与拒绝路径、
+  `MemoryState`/`StudentTwin` 隔离、共享 fixture 全量一致与 CLI 冒烟。
+- TypeScript：`dsh-plugin/tests/fsrs-calibration.test.ts`（46）覆盖同一组行为与共享
+  fixture 逐字节一致。
+- 共享 fixture：`tests/fixtures/fsrs_calibration_step11.json`（合成）同时被 Python 与
+  TypeScript 读取。
+- 全量结果：`python3 -m unittest discover -s tests` 340 通过（Step 11 新增 50）；
+  `node --test tests/*.test.ts` 198 通过（Step 11 新增 46）；`npm run typecheck` 通过；
+  `npm run evidence:loader` 仍在独立隔离 Cordis/dsh 实例中成功（仅既有六个工具，未把
+  插件加载进本任务会话）。
+- **未完成/残留**：真实版本/人群校准、真实遗忘/保持数据、生产参数注册表与热切换、
+  真实 held-out 冻结集、真实审批后台与持久审计存储。当前实现是合成数据上的
+  Python/TypeScript 双实现骨架，`activation` 只返回冻结配置对象并记录决策，不宣称
+  生产可用或真实效果。
+
 ## 目录结构
 
 ```text
@@ -753,19 +827,21 @@ aeh/
   diagnosis.py         # 规范 §7 区分性诊断题选择
   exercise.py          # 规范 §9.2/9.4 干预包与交付校验
   exercise_evolution.py # Step 10 习题演化引擎与隔离模拟实验室（规范 §9、§11）
+  fsrs_calibration.py   # Step 11 FSRS 参数校准：拟合/不确定性/候选/门禁（规范 §8）
+  fsrs_calibration_cli.py # Step 11 可运行校准演示入口（python -m aeh.fsrs_calibration_cli）
   demo_session.py      # Step 2 合成拍题/批改/诊断/复习闭环
   report.py            # Step 2 已授权聚合事件的教师/家长报告
   evaluation.py        # Step 5 独立冻结评测协议（规范 §19，防自证）
   eval_cli.py          # Step 5 可运行评测入口（python -m aeh.eval_cli）
   evolution.py         # Step 6 受控自进化骨架（规范 §27，宿主侧）
   demo.py              # Step 2 命令行入口（python -m aeh.demo）
-dsh-plugin/            # Step 3+4+5+6+7+8+9+10 TypeScript dsh / Cordis 教育插件
+dsh-plugin/            # Step 3+4+5+6+7+8+9+10+11 TypeScript dsh / Cordis 教育插件
   src/index.ts         # Cordis 插件入口（name / inject / Config / apply）
   src/dsh.ts           # 真实 cordis / dsh-tools 薄 authoring 适配层
   src/config.ts        # Step 7 Schemastery 配置校验（fail loud）+ Step 8 security 块
   src/security.ts      # Step 8 注入/越权/payload/限流/脱敏守卫
   src/output-schemas.ts # Step 7 六个工具的闭合输出 schema
-  src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包、Step 9 课程图/题库/RAG、Step 10 演化/模拟
+  src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包、Step 9 课程图/题库/RAG、Step 10 演化/模拟、Step 11 校准
   src/host/            # 内存同意 / HostContext / 孪生 / 交付适配器
   src/host/file-event-store.ts  # Step 5 默认关闭的文件事件存储
   src/host/evolution.ts         # Step 6 宿主侧受控自进化控制面（非工具）
@@ -775,14 +851,15 @@ dsh-plugin/            # Step 3+4+5+6+7+8+9+10 TypeScript dsh / Cordis 教育插
   src/tools.ts         # 六个教育工具 + Step 8 安全/审计包装
   src/permissions.ts   # 默认最小权限
   scripts/             # 隔离 loader 加载证据脚本
-  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7 + Step 8 + Step 9 + Step 10
+  tests/               # Node 24 不变量 + 宿主 + 报告 + 持久化 + 自进化 + 契约 + Step 7 + Step 8 + Step 9 + Step 10 + Step 11
   package.json         # 真实 @deepseek-ai/* 依赖（只装在本目录）
 docs/
-  dsh-integration.md   # Step 3+4+5+6+7+8+9+10 映射、权限与完成情况
+  dsh-integration.md   # Step 3+4+5+6+7+8+9+10+11 映射、权限与完成情况
   evaluation-report-template.md  # Step 5 评测报告模板
 tests/                 # Python 标准库 unittest 测试
   fixtures/curriculum_step9.json  # Step 9 Python/TS 共享的合成图谱与题库 fixture
   fixtures/exercise_evolution_step10.json  # Step 10 Python/TS 共享的演化与模拟 fixture
+  fixtures/fsrs_calibration_step11.json    # Step 11 Python/TS 共享的校准 fixture
 .github/workflows/ci.yml
 spec/                  # 规范全文（只读，不修改）
 references/            # 本地参考仓库（只读，已被 .gitignore 忽略，不提交）
@@ -830,9 +907,17 @@ Step 6 的受控自进化骨架（合成数据，离线，纯内存）：
 python3 -m unittest discover -s tests -p 'test_evolution.py' -v
 ```
 
-Step 3+4+5+6+7+8+9+10 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*`
-依赖，只安装在 `dsh-plugin/` 内（独立缓存），不会加载进运行中的 dsh，也不读写
-`~/.dsh/`：
+Step 11 的 FSRS 参数校准（合成数据，离线，纯内存，固定 clock）：
+
+```bash
+python3 -m aeh.fsrs_calibration_cli
+python3 -m aeh.fsrs_calibration_cli --json
+python3 -m unittest discover -s tests -p 'test_fsrs_calibration.py' -v
+```
+
+Step 3+4+5+6+7+8+9+10+11 的插件测试要求 Node **>= 24**。Step 4 起使用真实
+`@deepseek-ai/*` 依赖，只安装在 `dsh-plugin/` 内（独立缓存），不会加载进运行中的
+dsh，也不读写 `~/.dsh/`：
 
 ```bash
 cd dsh-plugin
@@ -845,15 +930,16 @@ npm run evidence:loader    # 隔离 Cordis loader 加载/卸载证据
 Node 测试分层：13 个离线不变量测试、12 个宿主适配器测试、8 个报告边界测试、
 8 个文件事件存储测试、22 个宿主侧自进化测试、7 个真实 Cordis/dsh 运行时契约测试、
 23 个 Step 7 加固测试、19 个 Step 8 安全测试、19 个 Step 9 课程图/题库/检索测试、
-21 个 Step 10 演化/模拟测试，全部使用合成引用，共 152 个。Python 侧共 290 个测试
-（Step 9 新增 22 个，Step 10 新增 48 个）。
+21 个 Step 10 演化/模拟测试、46 个 Step 11 校准测试，全部使用合成引用，共 198 个。
+Python 侧共 340 个测试（Step 9 新增 22 个，Step 10 新增 48 个，Step 11 新增 50 个）。
 
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在 push 和 pull request 时运行：
 
 - Python 3.11 与 3.12 矩阵：`python -m unittest discover -s tests -v`，以及离线
-  `python -m aeh.eval_cli --json`（无外部服务）；
+  `python -m aeh.eval_cli --json` 与 `python -m aeh.fsrs_calibration_cli --json`
+  （无外部服务）；
 - Node 24 job（工作目录 `dsh-plugin/`，独立缓存）：`npm ci`、`npm run typecheck`、
   `node --test tests/*.test.ts`、`npm run evidence:loader`。
 
@@ -897,7 +983,8 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
 - 自进化的真实候选来源检测器（漂移/回归/成本）与 PR/变更单生成、真实冻结评测
   服务、生产灰度/监控接入、跨服务防篡改审计与保留期、真实部署/回滚通道；Step 6
   只交付宿主侧内存/合成骨架。
-- 真实学生迁移与延迟保持的校准；当前记忆参数为示意值，小样本仍保留高不确定性。
+- 真实学生迁移与延迟保持的校准；Step 11 能在合成 review 序列上拟合出候选参数，但
+  当前运行参数仍是示意值，真实人群/版本校准与小样本不确定性处理未做。
 - 速率限制、locale 与跨进程并发控制：Step 8 已在工具入口实现单实例内存限流
   （按 session 与 `studentRef`）、提示注入/越权/超大 payload 拒绝与错误审计脱敏；
   跨进程/跨副本分布式限流、按工具/租户差异化配额、locale 展示与对抗性注入红队仍未做。
@@ -905,6 +992,10 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
   真实内容库/题型模板、真实学生行为校准、真实对照/延迟保持迁移实验、跨进程模拟
   调度与持久化，也没有把演化候选接入真实交付/UI。模拟实验室只在内存中对合成行为
   模型采样，不写任何真实存储。
+- FSRS 校准仍是合成骨架：只在合成 review 序列上拟合 6 维动力学参数，`19/81` 示意
+  曲线与线性难度项固定；没有真实版本/人群校准、生产参数注册表与热切换、真实 held-out
+  冻结集、真实审批后台与持久审计存储。`activation` 只返回冻结配置对象并记录一次被
+  批准的配置切换，既不写 `MemoryState`/`StudentTwin`，也不构成真实效果声明。
 
 ## 安全约定
 
@@ -925,13 +1016,18 @@ Step 1–7 有意不做以下内容，后续步骤再实现：
   权限、隐私、真实-模拟隔离等受保护不变量，不能写生产文件；审批默认拒绝、灰度仅
   合成会话比例、带熔断与回滚，全链路追加式审计不含原始学生数据。审批与回滚只在
   宿主侧调用，不新增模型工具。
-- Step 3+4+5+6+7+8+9+10 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、
+- Step 3+4+5+6+7+8+9+10+11 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、
   DB 写、凭据、文件或网络权限，observed 孪生写、干预交付与自进化审批/回滚不属于模型
   工具。隔离测试只使用合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
 - Step 10 演化只重采样结构化合成标注与受控参数，生成器与验证器分离（演化引擎先过
   课程门禁，候选池再要求沙箱筛查合格与题库审核通过，`observed_writes` 必须为 0）；
   模拟实验室的独立假设快照与只收 simulated 来源的事件日志保证模拟事件永不进入
   `observed`，模拟收益与真实迁移分通道报告。
+- Step 11 校准只读合成 review 序列，只产出参数候选；候选登记为声明式配置变更，
+  不能触及课程门禁/权限/隐私/真实-模拟隔离等受保护不变量。激活门禁默认拒绝、要求
+  隔离评测通过 + 显式宿主审批、禁止自批，激活只返回冻结配置对象并记入 append-only
+  审计，**绝不**写 `MemoryState`/`StudentTwin`；模拟收益恒为 `is_causal_evidence=false`，
+  真实迁移只接受可信来源与 unseen 题项，且仍只作描述性结论。
 - Step 7 配置非法即 fail loud（不静默回退默认值）；六个工具输出 schema 顶层闭合，
   越界返回被 dsh 判为 `INVALID_TOOL_OUTPUT`；假设快照绑定 session/agent scope、带
   TTL 与清理且不写长期孪生；审计 append-only、只收标量与原因码、递归拒绝原始学生
