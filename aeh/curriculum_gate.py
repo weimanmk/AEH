@@ -63,6 +63,10 @@ class CurriculumItem:
     extension_approved: bool = False
     role: str = "training"
     seen_before: bool = False
+    #: Step 9 item-bank path. ``True`` is the legacy/manual default; the item
+    #: bank sets this explicitly to ``False`` when any required annotation is
+    #: missing, so an incomplete catalog record can never pass the gate.
+    annotations_complete: bool = True
 
 
 @dataclass(frozen=True)
@@ -202,6 +206,8 @@ def allow(
         reasons.append("safety_not_verified")
     if not bool(_field(q, "content_verified", False)):
         reasons.append("content_not_verified")
+    if _field(q, "annotations_complete", True) is not True:
+        reasons.append("incomplete_annotations")
 
     confidence = _field(q, "annotation_confidence", None)
     if confidence is None:
