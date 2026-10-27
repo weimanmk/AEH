@@ -42,12 +42,35 @@
 - 命令行演示会话：拍题/批改/诊断/复习的最小闭环，用 Step 1 的核心，不接真实学生数据。
 - 教师/家长报告生成（仅用已授权汇总事件）。
 
-### Step 3（下一轮，不在本轮做）
+### Step 3（已完成）
 
-- dsh Cordis 插件骨架（TypeScript），把 Step 1 的核心映射为教育插件与工具，见 `docs/dsh-integration.md`（Step 1 不必写完整插件，只需在 README 中说明映射方向）。
+- dsh Cordis 插件骨架（TypeScript），把 Step 1 的核心映射为教育插件与工具，见 `docs/dsh-integration.md`。离线结构适配层 `dsh-plugin/src/dsh.ts`，尚未在真实 dsh 运行时加载，`tsc --noEmit` 尚未在本地跑过。
+
+### Step 4（本轮执行）：P0 真实 dsh 接入
+
+按 `docs/dsh-integration.md` §9 P0 清单，把离线骨架变成能在真实 dsh / Cordis 运行时加载的插件，仍不接真实学生数据：
+
+- 替换 `dsh-plugin/src/dsh.ts` 离线适配层为真实 `@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools` 导入；`package.json` 声明真实依赖，`npm install` 后 `npm run typecheck`（`tsc --noEmit`）必须通过；Node 测试 `node --test dsh-plugin/tests/*.test.ts` 仍全部通过。
+- 实现一个内存 `HostContext` 适配器（仅合成/测试授权快照）：`resolveProgress` / `resolveItem` 绑定授权 session，未授权请求 fail-closed；再实现一个内存宿主孪生适配器：事件 append-only、幂等、版本/回滚、来源认证、审计可查，模拟事件仍隔离。
+- 在真实 Cordis loader / dsh tool testkit 中做契约测试：工具 schema 校验、取消（`exec.signal`）、超时、卸载可清理；记录加载成功的证据（命令与输出），不要假装已加载。
+- 交付适配器与审批仍保持分离：`aeh_prepare_intervention` 只准备不交付，交付必须经宿主审批记录；身份/租户/同意作用域用最小可行的授权快照建模，撤回时拒绝后续读取。
+- 更新 `docs/dsh-integration.md`：把 P0 项逐项标记为已完成/未完成并写明证据；更新 `README.md` Step 4 一节；更新 `.github/workflows/ci.yml`，在 CI 中加入 Node 24 的插件测试与 `tsc --noEmit`（注意：CI 文件走 API 推不上去时，需走网页方式补推，见 Step 1/3 的经验）。
+- 不引入真实学生数据，不写密钥，不修改 `references/` 与 `spec/`，不破坏 Step 1/2 的 Python 测试与 Step 3 的 TS 测试。
+
+完成标准：`npm run typecheck` 通过；`node --test` 通过；`python3 -m unittest discover -s tests -v` 全部通过；有一份真实 loader 加载/卸载的运行证据；P0 清单中仍未完成项在文档中如实列出，不假装已实现。
+
+### Step 5（下一轮，不在本轮做）
+
+- 报告插件：只接收已授权聚合事件的 dsh 工具，复用 Step 2 `report.py` 的边界；持久化与删除传播的最小模型（事件存储、保留期、同意撤回），仍用合成数据。
+- 评测体系（规范 §19）：独立冻结评测集、模拟收益与真实迁移分离的评测脚本，不自证。
+
+### Step 6（下一轮，不在本轮做）
+
+- 受控自进化流水线骨架（规范 §27）：候选—隔离评测—批准—灰度—回滚，候选不能降低门禁，不能自行改写生产系统；仍为骨架与文档，不接真实生产。
 
 ## 工作方式
 
 - 只在本目录内创建/修改文件。
+- **改造的 dsh 与运行代码的 dsh 必须分开**：AEH 的插件工作只在本目录（`dsh-plugin/`、`docs/`）内进行，参考资料只读；绝对禁止修改运行用 harness —— `~/.dsh/` 的配置与存储、`~/workspace/deepseek-harness` 源码克隆、npx 安装的 dsh；绝对禁止把 AEH 插件加载进正在执行本任务的 harness 会话。Step 4 的 loader/契约测试必须用独立的、隔离的 Cordis/dsh 测试实例（独立配置与工作目录、独立 npm 安装），不得复用 headless 运行配置。
 - 每一步完成后用一句话总结改了什么、测试结果是什么。
 - 如果某项规范在本轮无法用标准库安全实现，写成 `TODO` 并说明原因，不要假装已实现。

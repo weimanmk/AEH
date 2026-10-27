@@ -9,6 +9,7 @@ __pycache__/
 .Python
 
 # Test and tooling caches
+node_modules/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -18,6 +19,11 @@ __pycache__/
 .coverage.*
 htmlcov/
 coverage.xml
+*.tsbuildinfo
+
+# Node / npm local caches (never commit; separate from the runtime harness)
+node_modules/
+.npm-cache/
 
 # Virtual environments
 .venv/

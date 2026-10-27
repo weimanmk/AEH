@@ -1,14 +1,17 @@
 # AEH — Adaptive Cognitive Twin Education Harness
 
 AEH 是一个**规范驱动**的自适应教育 Harness 核心骨架。本仓库对应
-[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3**：Step 1 用 Python 标准库实现
-可测试的核心机制；Step 2 在核心之上增加一个完全离线的合成演示会话，以及只消费
-已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript 的 dsh / Cordis 教育
-插件骨架，把核心机制映射为教育工具，但尚未在真实 dsh 运行时挂载。
+[`TASKS.md`](TASKS.md) 的 **Step 1 + Step 2 + Step 3 + Step 4**：Step 1 用 Python
+标准库实现可测试的核心机制；Step 2 在核心之上增加一个完全离线的合成演示会话，
+以及只消费已授权聚合事件的教师/家长报告；Step 3 增加一个 TypeScript 的 dsh /
+Cordis 教育插件骨架；Step 4 把插件骨架的离线适配层替换为真实的
+`@deepseek-ai/cordis` / `@deepseek-ai/dsh-tools`，并在**独立隔离**的 Cordis/dsh
+实例中完成加载、契约与卸载验证，同时补齐内存宿主适配器。
 
-当前状态：**核心骨架 + 合成演示 + 未挂载的插件骨架，不是生产系统**。Python 模块
-无第三方依赖，CI 不需要 `pip install`；插件骨架用 Node 24 内置 TypeScript type
-stripping 离线测试，不需要安装 dsh 包。
+当前状态：**核心骨架 + 合成演示 + 已在隔离实例中验证的插件，不是生产系统**。
+Python 模块无第三方依赖，CI 不需要 `pip install`；插件使用真实 `@deepseek-ai/*`
+依赖，依赖只安装在 `dsh-plugin/` 内（独立缓存），不会加载进任何正在运行的 dsh
+会话，也不读写 `~/.dsh/`。
 
 ## 这是什么
 
@@ -25,15 +28,16 @@ stripping 离线测试，不需要安装 dsh 包。
   闭环，所有状态变化都经过 Step 1 的门禁、孪生、假设、记忆与交付模块。
 - 一个最小权限的报告生成器：只接受固定 schema 的已授权聚合事件，不接收题目、答案、
   图片、作答步骤或任意自由文本，输出中也不包含事件 ID。
-- 一个 dsh / Cordis 教育插件骨架（TypeScript）：把门禁、孪生边界、FSRS 复习、
+- 一个 dsh / Cordis 教育插件（TypeScript）：把门禁、孪生边界、FSRS 复习、
   短期假设、诊断选择和干预包准备映射为五个默认最小权限工具；孪生写与干预交付
-  仍由宿主负责，模型无法绕过门禁或直接发题。
+  仍由宿主负责，模型无法绕过门禁或直接发题。插件已用真实 cordis/dsh-tools 依赖
+  在隔离实例中完成加载、schema、取消、超时与卸载契约测试。
 
 ## 这不是什么
 
-- 不是完整的教学系统、App 或生产服务；没有数据库、鉴权、多租户隔离、真实 LLM、
-  真实学生数据接入或已挂载的 dsh 插件运行时。Step 3 只提供 TypeScript 骨架和离线
-  测试，未在真实 dsh / Cordis 中加载。
+- 不是完整的教学系统、App 或生产服务；没有数据库、生产鉴权、多租户隔离、真实
+  LLM 或真实学生数据接入。Step 4 的插件只在**独立隔离**的 Cordis/dsh 测试实例中
+  加载验证，没有加载进任何正在运行的 dsh 会话；内存宿主适配器不是生产实现。
 - 不是真实 OCR、拍照 App 或通用数学判题器。演示中的“照片”、OCR、学生步骤和判题
   结果都是内存中的合成 fixture，不读文件、不连网、不调用模型。
 - 报告生成器不是完整的同意管理或访问控制服务；它只实现“授权聚合事件进、
@@ -135,10 +139,9 @@ Step 3 在**不改变 Python 核心行为**的前提下，新增 `dsh-plugin/`�
 机制映射为教育服务与五个模型可调用工具。完整映射、权限表和接入清单见
 [`docs/dsh-integration.md`](docs/dsh-integration.md)。
 
-当前 `dsh-plugin/src/dsh.ts` 是离线结构适配层，只实现本骨架用到的
-`Context` / `ctx.effect` / `ctx.tools.register` / `defineTool` 子集；它**不是**
-真实 dsh 运行时，也未做 dsh 契约测试。真正加载前必须替换为
-`@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools`。
+Step 3 最初使用一个离线结构适配层 `dsh-plugin/src/dsh.ts`（只实现
+`Context` / `ctx.effect` / `ctx.tools.register` / `defineTool` 子集）。该适配层已在
+Step 4 替换为真实的 `@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools`，见下一节。
 
 ### 核心映射
 
@@ -192,13 +195,40 @@ cd dsh-plugin
 npm run typecheck
 ```
 
-### 接入状态
+### 接入状态（Step 3 结束时）
 
-Step 3 **没有**在真实 dsh / Cordis 运行时加载过，也没有接入真实学生数据。真正
-接入还需要：替换适配层、实现宿主 `HostContext`（授权 progress/item）、宿主孪生
-存储与来源证明、身份/同意/租户绑定、交付审批与回滚、dsh 契约测试、审计与速率
-限制、FSRS 参数校准等。逐项说明和验收标准见
-[`docs/dsh-integration.md`](docs/dsh-integration.md) 第 9 节。
+Step 3 结束时插件**没有**在真实 dsh / Cordis 运行时加载过，也没有接入真实学生
+数据。Step 4 已在独立隔离实例中补齐 P0 的加载与契约验证，并把仍未完成的生产项
+如实列在 [`docs/dsh-integration.md`](docs/dsh-integration.md) 第 9 节。
+
+## Step 4：真实 dsh / Cordis 接入（P0）
+
+Step 4 在**不改变 Python 核心行为、不改动运行中 harness** 的前提下完成：
+
+- `dsh-plugin/src/dsh.ts` 直接导入真实 `@deepseek-ai/cordis` 与
+  `@deepseek-ai/dsh-tools`；`defineTool` 委托 dsh 做 schema 编译、参数/输出校验、
+  注册与执行。依赖声明在 `dsh-plugin/package.json`，只安装在 `dsh-plugin/`
+  内（独立缓存 `dsh-plugin/.npm-cache`），`npm run typecheck`（`tsc --noEmit`）通过。
+- 新增内存宿主适配器 `dsh-plugin/src/host/`：
+  - `MemoryHostContext`：绑定单一 session/租户/学生，`resolveProgress` /
+    `resolveItem` 只读授权快照；未授权、跨学生或撤回 `curriculum:read` 均 fail
+    closed；`toHostBinding()` 用于只保留数据属性的配置传输。
+  - `MemoryHostTwin`：append-only、按 `eventId` 幂等、版本/回滚、可注入来源认证
+    接缝、追加式审计（不记 payload）、observed/simulated 硬隔离。
+  - `ApprovalLedger` / `HostDeliveryAdapter`：宿主审批 + 交付门；模型工具
+    `aeh_prepare_intervention` 仍只准备、不交付。
+- 真实运行时契约测试 `dsh-plugin/tests/contract.test.ts`：用独立 `Context` +
+  dsh `ToolRuntime` + timeout policy + `cordis-plugin-loader` 挂载插件，验证
+  schema、参数校验（`INVALID_ARGS`）、取消（`exec.signal` →
+  `ABORTED_BEFORE_DISPATCH`）、超时（`TOOL_TIMEOUT`）与卸载清理。
+- 加载证据：`npm run evidence:loader` 在独立实例中打印挂载的 5 个工具、门禁决策
+  与各错误码，卸载后工具归零。命令与完整输出见
+  [`docs/dsh-integration.md`](docs/dsh-integration.md) 第 9 节。
+
+**仍未完成**（文档中如实列出，未假装实现）：生产鉴权/KMS/签名 attestation、
+持久化孪生存储、租户隔离、保留期与删除传播、真实交付 UI/LMS 与审批后台、独立
+评测与回滚流水线、报告插件、自进化流水线、输出 schema 收紧、locale/速率限制、
+FSRS 生产校准。本轮**只准备、不交付**，也不引入真实学生数据或密钥。
 
 ## 目录结构
 
@@ -214,14 +244,18 @@ aeh/
   demo_session.py      # Step 2 合成拍题/批改/诊断/复习闭环
   report.py            # Step 2 已授权聚合事件的教师/家长报告
   demo.py              # Step 2 命令行入口（python -m aeh.demo）
-dsh-plugin/            # Step 3 TypeScript dsh / Cordis 教育插件骨架
+dsh-plugin/            # Step 3+4 TypeScript dsh / Cordis 教育插件
   src/index.ts         # Cordis 插件入口（name / inject / apply）
+  src/dsh.ts           # 真实 cordis / dsh-tools 薄 authoring 适配层
   src/core/            # 门禁、孪生、FSRS、假设、诊断、干预包
+  src/host/            # 内存同意 / HostContext / 孪生 / 交付适配器
   src/tools.ts         # 五个教育工具
   src/permissions.ts   # 默认最小权限
-  tests/               # Node 24 离线测试
+  scripts/             # 隔离 loader 加载证据脚本
+  tests/               # Node 24 不变量 + 宿主适配器 + 真实运行时契约测试
+  package.json         # 真实 @deepseek-ai/* 依赖（只装在本目录）
 docs/
-  dsh-integration.md   # Step 3 映射、权限与真实接入清单
+  dsh-integration.md   # Step 3+4 映射、权限与 P0 完成情况
 tests/                 # Python 标准库 unittest 测试
 .github/workflows/ci.yml
 spec/                  # 规范全文（只读，不修改）
@@ -256,22 +290,30 @@ python3 -m unittest discover -s tests -p 'test_report.py' -v
 python3 -m unittest discover -s tests -p 'test_twin.py' -v
 ```
 
-Step 3 的插件测试要求 Node **>= 24**，不需要安装 dsh 包：
+Step 3+4 的插件测试要求 Node **>= 24**。Step 4 起使用真实 `@deepseek-ai/*` 依赖，
+只安装在 `dsh-plugin/` 内（独立缓存），不会加载进运行中的 dsh，也不读写 `~/.dsh/`：
 
 ```bash
 cd dsh-plugin
+npm install --cache .npm-cache
+npm run typecheck          # tsc --noEmit
 node --test tests/*.test.ts
+npm run evidence:loader    # 隔离 Cordis loader 加载/卸载证据
 ```
+
+Node 测试分三层：13 个离线不变量测试、12 个宿主适配器测试、6 个真实
+Cordis/dsh 运行时契约测试，全部使用合成引用。
 
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在 push 和 pull request 时运行：
 
 - Python 3.11 与 3.12 矩阵：`python -m unittest discover -s tests -v`；
-- Node 24 job：`node --test dsh-plugin/tests/*.test.ts`。
+- Node 24 job（工作目录 `dsh-plugin/`，独立缓存）：`npm ci`、`npm run typecheck`、
+  `node --test tests/*.test.ts`、`npm run evidence:loader`。
 
-没有 `pip install` 步骤，也没有外部服务或密钥依赖；插件测试使用 Node 内置的
-TypeScript type stripping，不需要安装 dsh 包。
+没有 `pip install` 步骤，也没有外部服务或密钥依赖；插件测试依赖公开的
+`@deepseek-ai/*` npm 包，不接触任何用户 dsh 配置或运行中的 harness。
 
 ## 参考来源与许可证注意事项
 
@@ -292,18 +334,20 @@ TypeScript type stripping，不需要安装 dsh 包。
 
 ## 已知边界 / TODO
 
-Step 1/2/3 有意不做以下内容，后续步骤再实现：
+Step 1/2/3/4 有意不做以下内容，后续步骤再实现：
 
-- 持久化存储、租户/学生访问边界、数据删除向派生存储的传播、鉴权与审计日志。
+- 持久化存储、租户/学生访问边界、数据删除向派生存储的传播、生产鉴权与审计日志。
 - 真实 OCR、图片脱敏、真实 LLM 生成、真实评分器、数学正确性求解器与内容安全
   服务；演示只使用脚本化合成 fixture。
 - 报告生成器背后的可信身份网关、同意记录、访问审计、保留期与删除传播。
-- 真实 dsh 运行时挂载、dsh 契约测试、插件安装/卸载、沙箱与凭据撤销；Step 3 的
-  `src/dsh.ts` 只是离线结构适配层，最小权限清单已在 `src/permissions.ts` 声明。
+- 生产 dsh 会话挂载、真实签名 attestation/KMS、真实交付通道与审批后台、沙箱与
+  凭据撤销。Step 4 只在独立隔离的 Cordis/dsh 实例中完成加载与契约验证；内存
+  `src/host/` 适配器不是生产实现。
 - 孪生写工具与干预交付工具；它们被有意保留在宿主侧，默认插件不暴露。
 - 自进化的候选—隔离评测—批准—灰度—回滚流水线。
 - 真实学生迁移与延迟保持的校准；当前记忆参数为示意值，小样本仍保留高不确定性。
-- 插件输出 schema 收紧、审计/速率限制、locale 与跨进程并发控制。
+- 插件输出 schema 收紧、速率限制、locale 与跨进程并发控制；`Config` 尚未改用
+  Schemastery 校验。
 
 ## 安全约定
 
@@ -313,5 +357,6 @@ Step 1/2/3 有意不做以下内容，后续步骤再实现：
 - 任何 mastery 更新必须引用已存在的真实证据 id；模拟事件不能被提升为真实证据。
 - 演示只构造合成学生与合成事件；报告只接收聚合事件，不接收孪生原始事件、图片、
   题目或作答文本。
-- Step 3 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
-  凭据、文件或网络权限，observed 孪生写与干预交付不属于模型工具。
+- Step 3+4 插件只接收 opaque `studentRef` 与宿主授权快照；默认无原始数据、DB 写、
+  凭据、文件或网络权限，observed 孪生写与干预交付不属于模型工具。隔离测试只使用
+  合成引用，不读写 `~/.dsh/`，也不加载进运行中的 harness 会话。
