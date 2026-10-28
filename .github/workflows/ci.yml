@@ -63,3 +63,38 @@ jobs:
 
       - name: Record isolated loader evidence
         run: npm run evidence:loader
+
+  frontend:
+    name: frontend (Node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # Dependencies stay inside frontend/ with its own cache. The frontend
+      # runs the real dsh-plugin TypeScript core in the browser (via a path
+      # alias) with no backend, no network calls, and no model sessions.
+      - name: Install frontend dependencies (isolated cache)
+        run: npm ci --cache .npm-cache --no-audit --no-fund
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Build (vite)
+        run: npm run build
+
+      - name: Run core behavior checks
+        run: npm run check
+
+      - name: Run SSR route smoke check
+        run: npm run smoke:ssr
