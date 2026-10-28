@@ -10,6 +10,9 @@
   未把 AEH 插件加载进当前 harness 会话。
 - **章节号说明**：规范中 **§20 是「指标面板、运行成本与可观测性」，§21 是「隐私、安全、未成年人保护与内容治理」**。
   任务描述写作“§20 隐私、§21 指标”，本文件按规范实际章节编号处理（两个章节都已覆盖）。
+- **第三阶段增补（2026-10-28）**：前端已从“合成 fixture 演示”改为“本地 store + `dsh-plugin/src`
+  真实 TypeScript 核心”。§1 的部分“演示/合成”描述已被本文件 **§6** 更新；以 §6 为准，
+  §1 保留作为第一阶段对照记录。
 - **第 2 轮复核对齐**：第 3 节的 14 项范围外事项已与
   [`../docs/remaining-gaps.md`](../docs/remaining-gaps.md) 第 3 节逐条对齐（同一事项、同一理由，
   以 remaining-gaps.md 为准），修订记录见 §5；新增的后端能力交叉引用见 §4。
@@ -287,3 +290,53 @@
 7. **渲染验证**：`npm run build` 重建后以 `vite preview` + `curl` 复核 `/`、`/student`、`/teacher`、
    `/report`、`/metrics` 全部 200；`BUILD.md` §8 如实记录方法与局限（**仍无无头浏览器 DOM 渲染断言**，
    200 只证明服务可达）。
+
+---
+
+# §6 第三阶段增补：从“演示”变为“真实可用”的检查点
+
+本阶段把前端的业务逻辑从 `src/data/synthetic.ts` 的静态 fixture 改为：
+
+- 用户录入并保存在 `localStorage`（键 `aeh.frontend.v1`）的本地 store；
+- 直接导入并运行 `dsh-plugin/src` 的真实 TypeScript 核心（Vite alias `@aeh/*`）；
+- 合成 fixture 只作为可删除的预置示例，所有示例实体带 `synthetic: true` 并在界面标注。
+
+## 6.1 从“演示”变为“真实可用”的检查点
+
+| 规范/功能检查点 | 第一阶段（演示） | 第三阶段（现在） | 证据位置 |
+|---|---|---|---|
+| 实时计数（学生/KC/题目/到期复习） | 手写常量或 fixture 派生 | 全部由 store + `memory.ts` 实时计算 | `HomeView.tsx`、`lib/metrics.ts` |
+| 课程门禁 §4.3 | 静态 `curriculumGateResults` 文案 | 真实 `allow()`；含未授 KC 的题被拒绝并显示 `kcs_not_allowed:*`；fail-closed | `lib/behavior.ts::gateForItem`、`core/curriculum-gate.ts` |
+| 学生进度（已授/进行中/已确认） | 静态三轴 fixture | 用户逐条录入 observed 进度，按 KC 取最后一条，带来源与备注；可删除 | `StudentView.tsx`、`lib/store.ts` |
+| 复习排程 §8.3/§8.4 | 静态留存/队列 fixture | `MemoryParameters`/`updateMemory` 真实更新；完成复习后重算 `nextDueAt`/`nextIntervalDays` | `lib/behavior.ts`、`core/memory.ts` |
+| 诊断 §7 | 静态 `diagnosticTrace`/`probeCandidates` | 真实 `candidateFromInput`/`selectProbe` 选 probe，显示分数、信息增益、风险、门禁与理由 | `lib/behavior.ts::diagnosisForStudent`、`core/diagnosis.ts` |
+| 假设 §6 | 静态假设生命周期 | 真实 `HypothesisSet`，显示权重/不确定性/证据数，并明确“假设/推测，不是事实” | `StudentView.tsx`、`core/hypothesis.ts` |
+| 课程图谱管理 §3.1/§3.2 | 只读 fixture | 可增删 KC、增删 `REQUIRES` 先修边；成环由 `KnowledgeGraph` 拒绝并显示原因 | `TeacherView.tsx::GraphSection`、`core/curriculum-graph.ts` |
+| 题库 §3.3 | 只读合成题 | 题目增删改（题干、必需 KC、难度、年级、分钟、认知负荷、提示、讲解）；写入校验 | `TeacherView.tsx::ItemBankSection`、`lib/store.ts` |
+| 干预准备 §9 | 静态干预包展示 | 真实 `packageFromInput`/`validatePackage`；训练/迁移分离；显示“已准备/未交付”与审批说明；**无交付动作** | `TeacherView.tsx::InterventionSection`、`core/exercise.ts` |
+| 教学策略 §10/§18 | 静态方法表 | 真实 `selectStrategy` 映射动作与方法，展示条件/实现/验证/护栏 | `TeacherView.tsx::StrategySection`、`core/teaching-strategy.ts` |
+| 聚合报告 §13.3/§19 | 静态 `reports` fixture | 真实 `generateReport` 边界；仅聚合计数，无原始作答/事件 ID；可导出 JSON | `ReportView.tsx`、`lib/reporting.ts`、`report.ts` |
+| 指标 §20 | 静态 `metricsByDimension` | 覆盖率、到期/逾期、未来 7 天、FSRS 回忆率、14 天日均负担全部实时计算 | `MetricsView.tsx`、`lib/metrics.ts` |
+| 隐私/同意 §21 | 静态权限域文案 | 本地同意账本；撤销/缺失同意即从指标与聚合报告排除并显示原因；零网络 | `MetricsView.tsx`、`lib/store.ts::setConsent` |
+| 导入/导出 | 无 | 导出 JSON、导入严格校验（失败不覆盖）、恢复示例、清空 | `HomeView.tsx`、`lib/store.ts` |
+
+## 6.2 仍然超出范围 / 未做到（诚实清单）
+
+1. **模型会话**：明确不在前端范围内。模型会话仍只走 dsh 插件；前端不含聊天、工具调用或会话记录。
+2. **三轴进度模型**：第一阶段展示的 School/Cognitive/AI 三轴没有原样保留。第三阶段按 brief 的 store
+   结构使用“KC + 状态 + observed 来源/备注”；不把“课堂讲过”自动当成掌握，但也没有为三条轴分别建模。
+3. **完整课程本体与 RAG**：仍是本地手工 KC/边，没有真实课标层级、文档索引、向量检索或重排。
+4. **真实迁移/因果效果（L4）**：没有前测—干预—后测、对照或因果识别；界面明确标“未提供”，
+   不把本地练习或合成示例当真实迁移。
+5. **多遗忘模型选型与真实参数拟合**：只用真实 `memory.ts` 的 FSRS 风格模型；没有 BKT/IRT/HLR/DKT
+   选型、时间外验证或个体参数拟合。
+6. **真实约束式学生模拟器**：没有；合成示例只是 fixture。
+7. **后端/数据库/认证/同步/加密**：没有数据库、服务端鉴权、云同步、加密审计或保留期策略；
+   数据只在当前浏览器 `localStorage`，清站点数据即丢失，需用户手动导出。
+8. **干预交付**：只有“已准备”。没有 `deliver()`、交付凭证或审批工作流；真正交付必须由 dsh 侧
+   host approval 独立复核。
+9. **无头浏览器 DOM 断言**：环境没有可用的无头浏览器；`vite preview` 的 200 只证明 SPA 回退可达。
+   已用 Vite SSR 冒烟渲染与构建产物路由字符串做补充，但不等于真实浏览器交互测试。
+10. **前端本地同意账本与 `core/privacy.ts`**：按 brief 使用本地账本，没有导入插件的完整隐私服务；
+    它不是服务端访问控制，只是本地聚合前的 fail-closed 过滤。
+

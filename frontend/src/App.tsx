@@ -12,7 +12,7 @@ function NotFound() {
       <div className="section-head">
         <div className="eyebrow">404</div>
         <h1>页面不存在</h1>
-        <p className="lede">演示前端只有首页与 4 个视图。</p>
+        <p className="lede">本地教师工具只有首页与 4 个业务视图。</p>
       </div>
       <Link className="btn btn-primary" to="/">
         返回首页

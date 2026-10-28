@@ -728,7 +728,58 @@ th.num {
   gap: var(--space-xs);
   max-width: 360px;
 }
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+  align-items: end;
+}
+.form-grid .field {
+  max-width: none;
+}
+.field-action {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.text-area {
+  height: auto;
+  min-height: 92px;
+  padding: 10px 14px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--color-charcoal);
+  cursor: pointer;
+}
+.checkbox-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+}
+.checkbox-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  background: var(--color-surface-soft);
+}
 .field label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.field-label-like {
   font-size: 14px;
   font-weight: 500;
   color: var(--color-ink);
@@ -858,6 +909,9 @@ th.num {
   .grid-2,
   .grid-3,
   .grid-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   .hero {

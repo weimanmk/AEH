@@ -3,12 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "AEH 演示前端（第一阶段）：合成数据、仅内存状态、无后端。",
+  "description": "AEH 本地教师工作台：直接运行 dsh-plugin 的真实 TypeScript 核心，数据只存浏览器 localStorage。",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "node scripts/check-core-behaviors.mjs",
+    "smoke:ssr": "node scripts/ssr-smoke.mjs"
   },
   "dependencies": {
     "react": "18.3.1",

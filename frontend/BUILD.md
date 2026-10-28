@@ -1,7 +1,8 @@
 # 构建与验证记录（BUILD.md）
 
-本文件记录 AEH 演示前端的**真实**构建日志与验证结果：
-第一阶段（脚手架 + 5 视图，§1–§6）与第二阶段（v1.1 规范自查补齐后的重建，§7）。
+本文件记录 AEH 前端的**真实**构建日志与验证结果：
+第一阶段（脚手架 + 5 视图，§1–§6）、第二阶段（v1.1 规范自查补齐后的重建，§7–§8），
+以及第三阶段（真实 TypeScript 核心接入、本地 store 与验证，§9）。
 
 - 第一阶段环境：容器内 `/home/hatch/workspace/AEH/frontend`，时间 `2026-10-27 15:41 UTC`。
 - 第二阶段环境：同一目录，时间 `2026-10-27 15:54 UTC`。
@@ -304,3 +305,158 @@ DATA_INVARIANTS_OK
 - **局限（诚实记录）**：仍无 headless-browser DOM 渲染断言；HTTP 200 只证明
   路由可达，不证明浏览器内渲染无错。本节数字为本地实测，不得引用为 CI 结果。
 - **未推送、未发邮件**；运行用的 dsh、源码 clone 均未改动。
+
+## 9. 第三阶段：真实核心接入、存储与验证（2026-10-28，本地实测）
+
+本节记录前端从“合成 fixture 演示”切换为“本地 store + 真实 TypeScript 核心”后的构建与验证。
+数字均为本机实测，不是 CI 结果。
+
+### 9.1 真实核心接入方式
+
+- **唯一桥接**：`src/lib/core.ts` 只做 re-export，不重写算法。
+- **Vite alias**（`vite.config.ts`）：
+  - `@aeh` → `../dsh-plugin/src`（只读引用，不复制、不修改插件源码）；
+  - `node:crypto` → `src/lib/shims/sha256.ts`。
+- **导入的插件模块**：`domain.ts`、`core/curriculum-gate.ts`、`core/curriculum-graph.ts`、
+  `core/memory.ts`、`core/diagnosis.ts`、`core/exercise.ts`、`core/hypothesis.ts`、
+  `core/twin.ts`、`core/teaching-strategy.ts`、`report.ts`。
+- **刻意不导入**：`core/services.ts`（`node:fs` / `node:path` 文件存储）、`core/privacy.ts`
+  （前端按 brief 使用本地同意账本）、`core/fsrs-calibration.ts` / `core/exercise-evolution.ts`
+  （前端不需要）。
+- **类型投影**：插件 `twin.ts` / `curriculum-graph.ts` 在插件自己的 tsconfig 下没有开
+  `noUnusedLocals`，各有一个内部未使用 helper；为保持前端严格检查且不改插件，使用
+  `src/types/aeh-twin.d.ts`、`src/types/aeh-curriculum-graph.d.ts` 做类型投影。
+  Vite 运行时仍加载真实插件源码。
+- **适配层**：`src/lib/behavior.ts` 把 store 的 observed 记录投影成核心输入；
+  所有门禁、FSRS、诊断、假设、策略、干预校验都调用真实核心。
+- **模型会话/服务端**：无。没有后端、数据库、模型会话或网络调用。
+
+### 9.2 SHA-256 垫片说明
+
+- 触发点：`core/curriculum-graph.ts` 的 `contentHash` 使用 `node:crypto` 的 `createHash('sha256')`。
+- 垫片：`src/lib/shims/sha256.ts`，纯 TypeScript 同步实现；仅通过 Vite alias 供浏览器侧使用。
+- 一致性：已用 Node 的 `crypto.createHash('sha256')` 对空串、`abc`、中文、1000 字符输入
+  逐字节比对，输出一致。该垫片不是通用加密库，只实现本前端需要的内容摘要。
+- 未引入任何 polyfill 包。
+
+### 9.3 存储键与数据边界
+
+- localStorage 键：**`aeh.frontend.v1`**。
+- store 版本：`version: 1`；结构：`students / kcs / edges / items / progress / reviews /
+  interventions / consents`（详见 `src/lib/model.ts`）。
+- 学生只用本地代号 + 年级；不收集真实姓名、账号、照片。
+- 掌握度写入只接受 `observed_*`；`simulated_*` 没有写入口。
+- 导入 JSON 先做完整校验（版本、字段、引用、重复、图谱合法性）；失败时报错且**不覆盖**原数据。
+- 导出用 Blob 下载；导入用 `<input type=file>`；运行期零网络。
+
+### 9.4 构建与类型检查
+
+```text
+$ npm run typecheck
+> tsc --noEmit
+（exit 0）
+
+$ npm run build
+> tsc --noEmit && vite build
+vite v5.4.21 building for production...
+✓ 63 modules transformed.
+dist/index.html                   0.51 kB │ gzip:   0.45 kB
+dist/assets/index-6H3SBHtT.css   16.58 kB │ gzip:   3.87 kB
+dist/assets/index-BqYreLUQ.js   358.60 kB │ gzip: 113.21 kB
+✓ built in 2.18s
+```
+
+- `noUnusedLocals` / `noUnusedParameters` / `strict` 均保持通过。
+- 产物中无 `node:` 导入：
+
+```text
+$ grep -REno "(from|import|require)[( ]*[\"']node:" dist/assets/*.js
+NO_NODE_BUILTIN_IMPORTS
+```
+
+- 运行期零网络自查：
+
+```text
+$ grep -RInE '\bfetch\s*\(|\baxios\b|\bWebSocket\b' src
+NO_NETWORK_APIS
+$ grep -REno '\bfetch\s*\(|\baxios\b|\bWebSocket\b' dist/assets/*.js
+NO_NETWORK_APIS_IN_DIST
+```
+
+> 说明：Vite 默认的 modulepreload polyfill 会在产物里注入 `fetch()`（只用于同源静态资源）。
+> 为与“grep 无 fetch(”的口径一致，已在 `vite.config.ts` 关闭该 polyfill
+> （`build.modulePreload.polyfill: false`）；现代浏览器原生支持 modulepreload。
+
+### 9.5 核心行为验证脚本
+
+```text
+$ npm run check          # node scripts/check-core-behaviors.mjs
+PASS 门禁拒绝未授 KC — item.fraction.multiply.candidate → kcs_not_allowed:kc.fraction.multiply
+PASS 复习后 FSRS 下次时间变化 — 1.664 天 → 2.765 天
+PASS 诊断产生 probe — best=item.fraction.equiv.001，候选 4，通过门禁 3
+PASS 聚合报告排除撤销同意的学生 — stu_consent_case 已排除；attempts 6 → 5
+ALL_CORE_BEHAVIORS_PASS
+```
+
+- 脚本用 Node 24 直接加载与 UI 相同的 TS 模块；`scripts/ts-resolve-hooks.mjs` 只做
+  `@aeh/*` alias 与省略扩展名的解析，不 mock 任何核心。
+- 时间戳随运行时间变化，上面的天数是本次实测值。
+
+### 9.6 预览与路由验证
+
+```text
+$ npm run preview -- --host 127.0.0.1
+$ for p in / /student /teacher /report /metrics; do curl ...; done
+/ HTTP 200 root=1
+/student HTTP 200 root=1
+/teacher HTTP 200 root=1
+/report HTTP 200 root=1
+/metrics HTTP 200 root=1
+asset /assets/index-BqYreLUQ.js HTTP 200 text/javascript 374340 bytes
+```
+
+- 每个路由返回 `index.html`（603 bytes），含 `<div id="root"></div>` 与
+  `<title>AEH 教师工作台 · 本地</title>`，SPA fallback 生效。
+- 额外做了 SSR 冒烟（不是真实浏览器；含 5 个路由与 3 个空 store 分支）：
+
+```text
+$ npm run smoke:ssr
+PASS SSR / -> 3963 bytes，含“AEH 教师工作台”
+PASS SSR /student -> 17425 bytes，含“学生进度、复习、诊断与门禁”
+PASS SSR /teacher -> 20454 bytes，含“课程图谱、题库、干预准备与教学策略”
+PASS SSR /report -> 6744 bytes，含“仅聚合的教师报告”
+PASS SSR /metrics -> 5476 bytes，含“覆盖率、到期负担、回忆率与同意账本”
+PASS SSR empty /student -> 2395 bytes，含“还没有学生”
+PASS SSR empty /report -> 5130 bytes，含“当前没有可纳入报告的学生”
+PASS SSR empty /metrics -> 5173 bytes，含“还没有学生”
+SSR_SMOKE_PASS
+```
+
+**局限（诚实记录）**：环境没有可用的无头浏览器，SSR 冒烟不等于真实 DOM 交互测试；
+未验证点击、表单提交在浏览器中的实际行为（这些路径由类型检查、Node 行为脚本与代码审查覆盖）。
+HTTP 200 只证明服务可达与 SPA 回退，不证明浏览器内无运行时错误。
+
+### 9.7 插件侧只读验证
+
+```text
+$ cd ../dsh-plugin && npm run typecheck
+> tsc --noEmit
+（exit 0）
+
+$ npm test
+ℹ tests 463
+ℹ pass 463
+ℹ fail 0
+ℹ duration_ms 6943.763125
+```
+
+- 未修改 `dsh-plugin/` 的任何文件；`find dsh-plugin/src -mmin -180` 无输出。
+- 未修改 `spec/`、`references/`；未触碰 `~/.dsh/` 或 `~/workspace/deepseek-harness`。
+
+### 9.8 新增脚本与文档
+
+- `scripts/check-core-behaviors.mjs`：四项核心行为断言。
+- `scripts/ts-resolve-hooks.mjs`：Node 解析钩子（仅验证脚本使用，不进入浏览器 bundle）。
+- `scripts/ssr-smoke.mjs`：5 路由 SSR 冒烟。
+- `npm run check`、`npm run smoke:ssr` 已写入 `package.json`；未新增依赖。
+

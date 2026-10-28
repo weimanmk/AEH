@@ -1,20 +1,22 @@
 /**
- * AEH 演示前端 · 合成数据模块（唯一数据源）
+ * AEH 合成 fixture 模块（仅预置示例）
  * ------------------------------------------------------------------
  * 本文件中的所有数值、题项、事件、报告与评测结果都是**合成 fixture**，
- * 用于演示 v1.1 规范中的结构（§5 认知孪生、§6 短期假设、§7 主动诊断、
+ * 用于展示 v1.1 规范中的结构（§5 认知孪生、§6 短期假设、§7 主动诊断、
  * §8 记忆/留存、§13 聚合报告、§19 模拟/真实分离）。
  *
  * 重要约束：
  *  - 不包含、也不代表任何真实学生数据；学生标识为伪匿名示例 `stu_syn_0001`。
- *  - 不连接后端、不调用真实接口；页面状态只存在于浏览器内存。
+ *  - 预置示例由 `lib/preset.ts` 写入本地 store，全部带 `synthetic: true`；
+ *    用户数据与示例数据在界面中分开标注。
+ *  - 不连接后端、不调用真实接口。
  *  - 概率与指标为结构示例，不是真实模型输出或真实学习效果。
  *  - 知识点命名沿用仓库既有合成示例：`kc.fraction.add` / `kc.fraction.equiv`
  *    / `kc.fraction.compare` / `kc.fraction.multiply`（见 dsh-plugin 合成 fixture）。
  */
 
 export const DEMO_META = {
-  productName: 'AEH 演示前端',
+  productName: 'AEH 教师工作台',
   productNameEn: 'Adaptive Cognitive Twin Education Harness',
   /** 首页产品一句话。 */
   oneLiner:

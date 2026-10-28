@@ -1,120 +1,105 @@
-# AEH 演示前端（第一阶段）
+# AEH 教师工作台（本地）
 
-自适应认知孪生教育 Harness（AEH）的**本地演示前端**：Vite + React + TypeScript 单页应用，
-包含首页与 4 个视图。**不连接后端、不调用真实接口、不使用真实学生数据**；
-所有内容来自 [`src/data/synthetic.ts`](src/data/synthetic.ts) 的合成 fixture，状态只存在于浏览器内存。
+自适应认知孪生教育 Harness（AEH）的本地教师工具：Vite + React + TypeScript 单页应用，
+**直接运行 `dsh-plugin/src` 的真实 TypeScript 核心**，数据只保存在当前浏览器的
+`localStorage`（键 `aeh.frontend.v1`）。
 
-> 本目录只写前端代码；设计语言以 [`DESIGN.md`](DESIGN.md)（Notion 风格：暖色极简、
-> 柔和表面、简洁首页）为准，v1.1 规范见仓库根目录 `spec/`（只读参考）。
+- 无后端、无数据库、无模型会话；运行期零网络。
+- 学生只用本地代号 + 年级，不收集真实姓名、账号、照片。
+- 掌握度写入只接受 `observed_*` 观察；`simulated_*` 永不写真实掌握度。
+- 预置合成 fixture 只作可删除的示例，全部带“合成数据示例”标注。
+- 设计语言以 [`DESIGN.md`](DESIGN.md) 为准（暖色极简、柔和表面）；规范见仓库根目录 `spec/`（只读）。
 
-## 环境要求
+## 能做什么
 
-- Node.js ≥ 18（本仓库验证环境：Node `v24.22.1`、npm `10.9.4`）
+| 路由 | 视图 | 能力 |
+|---|---|---|
+| `/` | 首页 | 学生/KC/题目/今日到期复习实时计数；数据导出/导入/恢复示例/清空 |
+| `/student` | 学生 | 学生增删改；observed 进度；到期复习与真实 FSRS 重算；诊断 probe；课程门禁；假设面板 |
+| `/teacher` | 教师 | 图谱增删（成环拒绝）；题库增删改；干预包准备（仅准备、不交付）；教学策略依据 |
+| `/report` | 报告 | 仅聚合报告：人数、年级分布、各 KC 计数；模拟/真实分开；导出 JSON |
+| `/metrics` | 指标 | 覆盖率、到期/逾期、FSRS 回忆率、14 天日均负担；本地同意账本与隐私说明 |
 
-## 安装
+核心调用包括 `curriculum-gate.ts`、`curriculum-graph.ts`、`memory.ts`、`diagnosis.ts`、
+`exercise.ts`、`hypothesis.ts`、`twin.ts`、`teaching-strategy.ts` 和 `report.ts`。
+前端唯一桥接是 `src/lib/core.ts`，不重写算法；接入细节见 [`BUILD.md`](BUILD.md) §9。
+
+## 环境与命令
+
+- Node.js ≥ 18 可用于开发/构建；`npm run check` 依赖 Node 24 的 TypeScript 类型剥离
+  （验证环境 Node `v24.22.1`、npm `10.9.4`）。
 
 ```bash
 cd frontend
 npm install
+
+npm run dev        # 开发服务（http://localhost:5173）
+npm run typecheck  # 严格 TypeScript 检查
+npm run build      # tsc --noEmit && vite build
+npm run preview    # 预览生产构建（http://localhost:4173）
+npm run check      # 四项核心行为断言（Node 24 直接跑 TS）
+npm run smoke:ssr  # 5 路由 SSR 冒烟（无浏览器环境的补充证据）
 ```
 
-依赖版本已在 `package.json` 中**精确锁定**（无 `^`/`~`），当前为：
-
-| 包 | 版本 | 用途 |
-|---|---|---|
-| react / react-dom | 18.3.1 | UI 运行时 |
-| react-router-dom | 6.30.6 | 客户端路由 |
-| vite | 5.4.21 | 构建/本地服务 |
-| @vitejs/plugin-react | 4.7.0 | React 快速刷新与 JSX |
-| typescript | 5.9.3 | 类型检查 |
-| @types/react / @types/react-dom | 18.3.31 / 18.3.7 | 类型定义 |
-
-> 说明：在受限沙箱中默认 npm 缓存目录可能不可写。本次验证使用了
-> `npm install --cache .npm-cache`，缓存落在 `frontend/.npm-cache/`（已加入
-> `.gitignore`）。在普通开发机上直接 `npm install` 即可。
-
-## 常用命令
-
-```bash
-npm run dev        # 本地开发服务（默认 http://localhost:5173）
-npm run typecheck  # 只做 TypeScript 类型检查
-npm run build      # tsc --noEmit && vite build，产物在 dist/
-npm run preview    # 预览生产构建（默认 http://localhost:4173）
-```
-
-构建与预览验证记录见 [`BUILD.md`](BUILD.md)。
-
-## 路由
-
-| 路径 | 视图 | 说明 |
-|---|---|---|
-| `/` | 首页 | 产品一句话、三个角色入口、合成数据声明 |
-| `/student` | 学生答题 | 3 道分数合成题，答完即时给“观测到的对错” |
-| `/teacher` | 教师孪生 / 诊断 | 合成学生的知识状态、假设列表、诊断追溯链 |
-| `/report` | 报告 | 教师/家长聚合报告（仅聚合事件，无原始学生数据） |
-| `/metrics` | 指标仪表盘 | 留存、诊断覆盖、模拟/真实分离的评估说明 |
+依赖精确锁定，无新增运行时依赖。构建与验证记录见 [`BUILD.md`](BUILD.md)；
+逐项规范对照、真实可用范围与剩余边界见 [`SPEC-CHECK.md`](SPEC-CHECK.md)。
 
 ## 目录结构
 
 ```text
 frontend/
-├── DESIGN.md                 # 既有设计语言（只读参考，未修改）
-├── README.md                 # 本文件
-├── BUILD.md                  # 构建日志与验证结果
+├── BUILD.md                 # 真实构建/验证日志
+├── SPEC-CHECK.md            # 规范对照与边界
+├── DESIGN.md                # 既有设计语言（只读参考）
 ├── index.html
-├── package.json              # 依赖精确锁定 + 脚本
+├── package.json
 ├── tsconfig.json
-├── vite.config.ts            # appType: 'spa'，preview 端口 4173
+├── vite.config.ts           # @aeh alias、node:crypto 垫片、SPA
+├── scripts/
+│   ├── check-core-behaviors.mjs
+│   ├── ssr-smoke.mjs
+│   └── ts-resolve-hooks.mjs
 └── src/
-    ├── main.tsx              # 挂载 + BrowserRouter
-    ├── App.tsx               # 5 条路由（首页 + 4 视图 + 404）
-    ├── components/
-    │   ├── Layout.tsx        # 顶部导航 + 页脚 + 合成数据声明
-    │   └── ui.tsx            # Card / Badge / Tag / Stat / Meter / Notice 等
-    ├── data/
-    │   └── synthetic.ts      # 唯一数据源（合成 fixture）
+    ├── main.tsx             # 挂载 + Step 0 核心冒烟
+    ├── App.tsx              # 5 条路由 + 404
+    ├── components/          # Layout / UI 组件
+    ├── data/synthetic.ts    # 预置合成 fixture（仅示例）
     ├── lib/
-    │   └── fractions.ts      # 分数解析、判等、百分比格式化
-    ├── styles/
-    │   ├── tokens.css        # 来自 DESIGN.md 的 CSS 变量（颜色/字体/圆角/间距/阴影）
-    │   └── app.css           # 布局与组件样式、响应式
-    └── views/
-        ├── HomeView.tsx
-        ├── StudentView.tsx
-        ├── TeacherView.tsx
-        ├── ReportView.tsx
-        └── MetricsView.tsx
+    │   ├── core.ts          # 真实核心唯一桥接
+    │   ├── model.ts         # store 类型、localStorage 键、observed 校验
+    │   ├── store.ts         # 本地 store + 增删改 + 导入校验
+    │   ├── behavior.ts      # store → 核心输入的适配层
+    │   ├── metrics.ts       # 实时指标
+    │   ├── reporting.ts     # report.ts 聚合边界
+    │   ├── preset.ts        # 合成示例 → store
+    │   ├── shims/sha256.ts  # node:crypto 的浏览器垫片
+    │   └── format.ts / download.ts
+    ├── store/useStore.ts    # useSyncExternalStore
+    ├── styles/              # tokens.css / app.css
+    ├── types/               # 两个插件的类型投影
+    └── views/               # Home / Student / Teacher / Report / Metrics
 ```
 
-## 合成数据与规范对应
+## 数据与隐私边界
 
-`src/data/synthetic.ts` 的结构对齐 v1.1 规范中的示例字段，知识点沿用仓库既有
-合成命名（`kc.fraction.*`）：
+- 存储：`localStorage['aeh.frontend.v1']`，`version: 1`。清除站点数据会一起清除本工具数据；
+  重要数据请先在首页导出 JSON。
+- 导入：先做完整校验（版本、字段、引用、重复、图谱合法性）；失败时报错且**不覆盖**原数据。
+- 同意：新增学生默认记录“本地聚合报告同意”，可随时撤销；撤销或缺失同意的学生在指标与
+  聚合报告中 fail-closed 排除，并显示原因。删除学生才会真正删除其本地数据。
+- 报告只含本地代号与聚合计数，不含题目原文、答案、步骤、原始作答或事件 ID。
+- 合成示例可删除、恢复或一键清空；它不是真实学生，也不得作为教学效果证据。
 
-- 知识状态（§5.1/§5.2）：`mastery_posterior`、`retrieve_probability`、
-  `transfer_estimate`，不压缩为单一“掌握率”。
-- 短期认知假设（§6.1）：`knowledge_assumptions`、`strategy_policy`、`bug_rules`、
-  `predicted_observable_behaviors`、`posterior_weight`、`status`，并显式保留 unknown 权重。
-- 主动诊断（§7.1）：`Observe → Localize → Expand → Simulate → ChooseProbe → Update`。
-- 记忆留存（§8.3）：`R(t, S) = (1 + (19/81)·(t/S))^(-1/2)` 示意式。
-- 聚合报告（§13.3）：`authorized_aggregate_events_only`、`raw_student_data_included=false`、
-  无事件 ID；教师/家长范围收窄。
-- 评测分离（§19）：L3 模拟收益与 L4 真实迁移分节，无真实观测时写“未提供”，
-  不用模拟数据替代。
+## 明确不在范围
 
-## 设计实现说明
+- 模型会话/聊天：不在前端；仍只由 dsh 插件侧承载。
+- L4 真实迁移/因果效果：没有前测—干预—后测或对照设计，界面明确“未提供”。
+- 完整课程本体、RAG、多遗忘模型选型、真实参数拟合、后端/数据库/认证/云同步：未实现。
+- 干预包只有“已准备”，没有 `deliver()`、交付凭证或审批工作流。
+- 无头浏览器 DOM 交互测试：环境没有可用浏览器；SSR 冒烟与 HTTP 200 不等于真实点击测试。
 
-- 通过 `src/styles/tokens.css` 落地 `DESIGN.md` 的颜色、圆角、间距、阴影令牌；
-  组件使用 8px 圆角按钮与 12px 圆角卡片。
-- 字体：`Notion Sans → Inter → 系统字体`。由于本机通常没有 Notion Sans/Inter，
-  **标题栈保留衬线回退**（任务允许），正文栈回退到系统中文字体
-  （`PingFang SC` / `Microsoft YaHei`）。
-- 响应式断点：1024px / 767px / 480px，网格与表格自动降列。
+## 只读边界
 
-## 边界与合规
-
-- 只用合成数据；不编造真实学生数据，也不声称接入了真实系统。
-- 不修改 `~/.dsh/`、`~/workspace/deepseek-harness`、npx 安装的 dsh、
-  `references/` 与 `spec/`；本阶段只写 `frontend/`。
-- 不把 AEH 插件加载进正在执行本任务的 harness 会话。
-- 本阶段**不推送、不发邮件**。
+- `dsh-plugin/`、`spec/`、`references/`、`aeh/`、`docs/` 只读；前端不修改插件来解决前端问题。
+- 未读写 `~/.dsh/`；未修改 deepseek-harness clone 或 npx dsh；未把 AEH 插件加载进当前 harness。
+- 不推送、不发邮件、不执行 git 操作。
