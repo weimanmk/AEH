@@ -1,0 +1,25 @@
+{
+  "name": "aeh-frontend-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AEH 演示前端（第一阶段）：合成数据、仅内存状态、无后端。",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.30.6"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "5.9.3",
+    "vite": "5.4.21"
+  }
+}
